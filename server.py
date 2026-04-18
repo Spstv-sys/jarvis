@@ -3,32 +3,21 @@ import sys
 import asyncio
 import threading
 import queue
-import time
-from fastapi.concurrency import asynccontextmanager
 import psutil
 import uvicorn
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from contextlib import asynccontextmanager
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from main import JarvisUltimate
 from dotenv import load_dotenv
 load_dotenv()
 
-app    = FastAPI(title="JARVIS API")
 jarvis: JarvisUltimate | None = None
-
-# ✅ CORS — дозволяємо React dev-server
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # ---------------------------------------------------------------------------
 # WebSocket менеджер
@@ -65,11 +54,11 @@ manager = ConnectionManager()
 event_queue: queue.Queue = queue.Queue()
 
 def ui_callback(sender: str, text: str) -> None:
-    """✅ Викликається з потоків Jarvis — кладе подію в чергу"""
+    """Викликається з потоків Jarvis — кладе подію в чергу"""
     event_queue.put({"sender": sender, "text": text})
 
 async def event_broadcaster() -> None:
-    """✅ Фоновий таск — розсилає події всім клієнтам"""
+    """Фоновий таск — розсилає події всім клієнтам"""
     loop = asyncio.get_running_loop()
     while True:
         try:
@@ -84,7 +73,7 @@ async def event_broadcaster() -> None:
             await asyncio.sleep(0.1)
 
 async def metrics_broadcaster() -> None:
-    """✅ Метрики системи — раз на секунду"""
+    """Метрики системи — раз на секунду"""
     while True:
         battery = psutil.sensors_battery()
         vol     = getattr(jarvis.audio, "current_volume", 0) if jarvis else 0
@@ -145,7 +134,17 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(metrics_broadcaster())
     yield
 
+# ---------------------------------------------------------------------------
+# Створення app — один раз, з lifespan та CORS
+# ---------------------------------------------------------------------------
 app = FastAPI(title="JARVIS API", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ---------------------------------------------------------------------------
 # REST endpoints
@@ -174,7 +173,6 @@ async def websocket_endpoint(ws: WebSocket):
     await manager.connect(ws)
     try:
         while True:
-            # ✅ Приймаємо команди з браузера через WS
             data = await ws.receive_json()
             if data.get("type") == "command" and jarvis_ready.is_set():
                 jarvis.input_queue.put(data["text"])
