@@ -756,78 +756,79 @@ class JarvisUltimate:
     # -----------------------------------------------------------------------
     # ШІ-ЧАТ ТА ПОШУК
     # -----------------------------------------------------------------------
-    def handle_ai_chat(self, cmd: str) -> str:
-        # --- Пошук файлу ---
-        if "знайди файл" in cmd or ("знайди" in cmd and "файл" in cmd):
-            return self.cmd_code_assistant(cmd)
-        if re.search(r'\b[A-Za-z0-9_\-]+\.(py|txt|json|md|js|html|css|cpp|c|cs)\b', cmd):
-            return self.cmd_code_assistant(cmd)
+    def cmd_memorize(self, cmd: str) -> str:
+        """Запам'ятати факт: 'запам'ятай що...'"""
+        logger.info(f"cmd_memorize: {cmd!r}")
+        fact = re.sub(
+            r"\bщо\b", "",
+            cmd.replace("запам'ятай", ""),
+            flags=re.IGNORECASE
+        ).strip()
+        if not fact:
+            self.audio.speak("Уточніть, що саме запам'ятати.")
+            return "CONTINUE"
+        self.db.add_fact(fact)
+        self.brain.memorize(fact, source="user_fact")
+        self.audio.speak("Інформацію завантажено у бази даних.")
+        return "CONTINUE"
 
-        # --- Запам'ятати факт ---
-        if "запам'ятай" in cmd:
-            fact = re.sub(
-                r"\bщо\b", "",
-                cmd.replace("запам'ятай", ""),
-                flags=re.IGNORECASE
-            ).strip()
-            if not fact:
-                self.audio.speak("Уточніть, що саме запам'ятати.")
-                return "CONTINUE"
-            self.db.add_fact(fact)
-            self.brain.memorize(fact, source="user_fact")
-            self.audio.speak("Інформацію завантажено у бази даних.")
+    def cmd_web_search(self, cmd: str) -> str:
+        """Веб-пошук: 'що таке', 'хто такий', 'розкажи про', 'знайди інформацію'"""
+        logger.info(f"cmd_web_search: {cmd!r}")
+        search_triggers = config.TRIGGERS.get("web_search", [])
+        query = cmd
+        for t in search_triggers:
+            query = re.sub(rf'\b{re.escape(t)}\b', '', query, flags=re.IGNORECASE)
+        query = query.strip()
+
+        if not query:
+            self.audio.speak("Що саме мені знайти?")
             return "CONTINUE"
 
-        # --- Веб-пошук ---
-        search_triggers = ["що таке", "хто такий", "розкажи про", "що ти скажеш про"]
-        is_search = any(t in cmd for t in search_triggers) or "знайди" in cmd
+        self.audio.speak(f"Шукаю в мережі інформацію про {query}...")
 
-        if is_search:
-            query = cmd
-            for t in search_triggers:
-                query = re.sub(rf'\b{re.escape(t)}\b', '', query, flags=re.IGNORECASE)
-            query = query.strip()
+        try:
+            results = self._web_search(query)
 
-            if not query:
-                self.audio.speak("Що саме мені знайти?")
-                return "CONTINUE"
-
-            self.audio.speak(f"Шукаю в мережі інформацію про {query}...")
-
-            try:
-                results = self._web_search(query)
-
-                if results:
-                    search_context = "\n".join(r['body'] for r in results)
-                    answer = self.llm.generate_response(
-                        f"Користувач шукає: '{query}'.\n"
-                        f"Ось що знайдено в мережі:\n{search_context}\n"
-                        f"Зроби чіткий інформативний підсумок українською мовою.",
-                        is_system_call=True
-                    )
-                    if answer:
-                        self.audio.speak(answer)
-                        threading.Thread(
-                            target=self.brain.memorize,
-                            args=(f"Довідка з мережі щодо '{query}': {answer}",),
-                            kwargs={"source": "web_search"},
-                            daemon=True
-                        ).start()
-                        print(f"{Fore.MAGENTA}🧠 Знання завантажено у пам'ять (Web-RAG).")
-                    else:
-                        self.audio.speak("Не вдалося сформувати відповідь.")
+            if results:
+                search_context = "\n".join(r['body'] for r in results)
+                answer = self.llm.generate_response(
+                    f"Користувач шукає: '{query}'.\n"
+                    f"Ось що знайдено в мережі:\n{search_context}\n"
+                    f"Зроби чіткий інформативний підсумок українською мовою.",
+                    is_system_call=True
+                )
+                if answer:
+                    self.audio.speak(answer)
+                    threading.Thread(
+                        target=self.brain.memorize,
+                        args=(f"Довідка з мережі щодо '{query}': {answer}",),
+                        kwargs={"source": "web_search"},
+                        daemon=True
+                    ).start()
+                    print(f"{Fore.MAGENTA}🧠 Знання завантажено у пам'ять (Web-RAG).")
                 else:
-                    self.audio.speak("На жаль, я нічого не знайшов за цим запитом.")
+                    self.audio.speak("Не вдалося сформувати відповідь.")
+            else:
+                self.audio.speak("На жаль, я нічого не знайшов за цим запитом.")
 
-            except Exception as e:
-                logger.error(f"Помилка пошуку: {e}", exc_info=True)
-                self.audio.speak("Виникла проблема з доступом до інтернету.")
+        except Exception as e:
+            logger.error(f"Помилка пошуку: {e}", exc_info=True)
+            self.audio.speak("Виникла проблема з доступом до інтернету.")
 
-            return "CONTINUE"
+        return "CONTINUE"
 
-        # --- Звичайний чат через LLM ---
+    def cmd_ai_chat(self, cmd: str) -> str:
+        """Звичайний LLM чат — fallback"""
+        logger.info(f"cmd_ai_chat: {cmd!r}")
         self.llm.process_chat(cmd)
         return "CONTINUE"
+
+    def handle_ai_chat(self, cmd: str) -> str:
+        # Якщо команда схожа на запит файлу
+        if re.search(r'\b[A-Za-z0-9_\-]+\.(py|txt|json|md|js|html|css|cpp|c|cs)\b', cmd):
+            return self.cmd_code_assistant(cmd)
+        return self.cmd_ai_chat(cmd)
 
     # -----------------------------------------------------------------------
     # ДИСПЕТЧЕР КОМАНД
@@ -868,6 +869,8 @@ class JarvisUltimate:
             ("dictation",        self.cmd_dictation),
             ("system_exit",      self.cmd_system_exit),
             ("stop_voice",       self.cmd_stop_voice),
+            ("memorize",         self.cmd_memorize),
+            ("web_search",       self.cmd_web_search),
         ]
 
         for key, handler in ROUTES:
