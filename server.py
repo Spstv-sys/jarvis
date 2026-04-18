@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from main import JarvisUltimate
+import config
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -156,9 +157,10 @@ async def lifespan(app: FastAPI):
 # ---------------------------------------------------------------------------
 app = FastAPI(title="JARVIS API", lifespan=lifespan)
 
+logger.info(f"CORS allowed origins: {config.ALLOWED_ORIGINS}")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=config.ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )

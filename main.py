@@ -28,6 +28,18 @@ from rapidfuzz import fuzz
 
 from jarvis_media import JarvisYouTube
 from jarvis_scraper import JarvisScraper
+
+try:
+    import pygame
+    import pygame.mixer
+except ImportError:
+    pygame = None
+
+try:
+    from PIL import Image as PILImage
+except ImportError:
+    PILImage = None
+
 from core.memory import JarvisDatabase
 from core.memory_rag import JarvisSmartMemory
 from core.audio_manager import AudioManager
@@ -154,8 +166,6 @@ class JarvisUltimate:
     # ПОТІК "РОТ"
     # -----------------------------------------------------------------------
     def start_mouth(self) -> None:
-        import pygame
-
         def mouth_loop():
             while self.is_running:
                 try:
@@ -164,7 +174,7 @@ class JarvisUltimate:
                     if text == "<CLEAR_QUEUE>":
                         self.audio.stop_event.set()
                         try:
-                            if pygame.mixer.get_init():
+                            if pygame and pygame.mixer.get_init():
                                 pygame.mixer.music.stop()
                         except Exception:
                             pass
@@ -564,8 +574,10 @@ class JarvisUltimate:
                 return "CONTINUE"
 
             pyautogui.screenshot(shot_path)
-            import PIL.Image
-            img   = PIL.Image.open(shot_path)
+            if PILImage is None:
+                self.audio.speak("Бібліотека PIL не встановлена.")
+                return "CONTINUE"
+            img   = PILImage.open(shot_path)
             query = (
                 cmd.replace("що на екрані", "")
                    .replace("проаналізуй монітор", "")
