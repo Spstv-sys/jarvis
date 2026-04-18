@@ -1,0 +1,33 @@
+# --- Бази даних та векторна пам'ять ---
+chromadb
+
+# --- ШІ Провайдери ---
+google-generativeai
+openai
+ollama
+
+# --- Аудіо, Голос та Розпізнавання ---
+SpeechRecognition
+openwakeword
+PyAudio
+numpy
+faster-whisper
+edge-tts
+pygame
+
+# --- Системні утиліти та автоматизація ---
+psutil
+keyboard
+PyAutoGUI
+screen-brightness-control
+watchdog
+Pillow
+
+# --- Робота з мережею та парсинг ---
+requests
+duckduckgo-search
+python-dotenv
+
+# --- Допоміжні утиліти ---
+colorama
+rapidfuzz

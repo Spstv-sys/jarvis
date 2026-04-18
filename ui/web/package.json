@@ -1,0 +1,36 @@
+{
+  "name": "jarvis-hud",
+  "version": "1.0.0",
+  "main": "electron.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "electron": "electron .",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on tcp:5173 tcp:8001 && npx electron .\""
+  },
+  "dependencies": {
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.1",
+    "concurrently": "^9.2.1",
+    "electron": "^41.2.1",
+    "electron-builder": "^26.8.1",
+    "vite": "^8.0.8",
+    "wait-on": "^9.0.5"
+  },
+  "build": {
+    "appId": "com.jarvis.app",
+    "productName": "J.A.R.V.I.S.",
+    "win": {
+      "icon": "../../jarvis_icon.ico",
+      "target": "nsis"
+    },
+    "files": [
+      "dist/**/*",
+      "electron.cjs"
+    ]
+  }
+}
