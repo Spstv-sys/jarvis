@@ -1,6 +1,7 @@
 import os
 import sys
 import asyncio
+import logging
 import threading
 import queue
 import psutil
@@ -17,6 +18,17 @@ from main import JarvisUltimate
 from dotenv import load_dotenv
 load_dotenv()
 
+# ---------------------------------------------------------------------------
+# ЛОГУВАННЯ
+# ---------------------------------------------------------------------------
+logging.basicConfig(
+    filename='jarvis_server.log',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - [%(funcName)s] - %(message)s',
+    encoding='utf-8'
+)
+logger = logging.getLogger(__name__)
+
 jarvis: JarvisUltimate | None = None
 
 # ---------------------------------------------------------------------------
@@ -31,10 +43,12 @@ class ConnectionManager:
         await ws.accept()
         async with self._lock:
             self._clients.append(ws)
+        logger.info(f"WebSocket клієнт підключився: {ws.client}. Всього клієнтів: {len(self._clients)}")
 
     async def disconnect(self, ws: WebSocket) -> None:
         async with self._lock:
             self._clients = [c for c in self._clients if c != ws]
+        logger.info(f"WebSocket клієнт відключився: {ws.client}. Залишилось клієнтів: {len(self._clients)}")
 
     async def broadcast(self, data: dict) -> None:
         async with self._lock:
@@ -42,7 +56,8 @@ class ConnectionManager:
             for client in self._clients:
                 try:
                     await client.send_json(data)
-                except Exception:
+                except Exception as e:
+                    logger.warning(f"Помилка надсилання клієнту {client.client}: {e}")
                     dead.append(client)
             self._clients = [c for c in self._clients if c not in dead]
 
@@ -105,8 +120,10 @@ def start_jarvis() -> None:
             f"Всі системи в нормі. Поточний інтелект: {jarvis.llm.active_provider}."
         )
         event_queue.put({"sender": "STATUS", "text": "SYSTEM ONLINE"})
+        logger.info("SYSTEM ONLINE — Jarvis успішно запущено.")
     except Exception as e:
         event_queue.put({"sender": "STATUS", "text": f"INIT ERROR: {e}"})
+        logger.error(f"INIT ERROR — Jarvis не вдалося запустити: {e}", exc_info=True)
     finally:
         jarvis_ready.set()
 
@@ -155,7 +172,9 @@ class CommandBody(BaseModel):
 @app.post("/command")
 async def send_command(body: CommandBody):
     if not jarvis_ready.is_set():
+        logger.warning(f"Команда відхилена (Jarvis не готовий): {body.text!r}")
         return {"status": "not_ready"}
+    logger.info(f"REST /command: {body.text!r}")
     jarvis.input_queue.put(body.text)
     return {"status": "ok"}
 
@@ -175,6 +194,7 @@ async def websocket_endpoint(ws: WebSocket):
         while True:
             data = await ws.receive_json()
             if data.get("type") == "command" and jarvis_ready.is_set():
+                logger.info(f"WebSocket команда від {ws.client}: {data.get('text')!r}")
                 jarvis.input_queue.put(data["text"])
     except WebSocketDisconnect:
         await manager.disconnect(ws)

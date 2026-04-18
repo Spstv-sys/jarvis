@@ -308,6 +308,7 @@ class JarvisUltimate:
     # КОМАНДИ — ЗНАННЯ ТА НАВИЧКИ
     # -----------------------------------------------------------------------
     def cmd_update_knowledge(self, cmd: str) -> str:
+        logger.info(f"cmd_update_knowledge: {cmd!r}")
         self.audio.speak(
             "Починаю сканування документів та оновлення векторної бази знань. "
             "Це може зайняти деякий час."
@@ -335,6 +336,7 @@ class JarvisUltimate:
                         'func':     module.execute,
                         'name':     module_name,
                     })
+                    logger.info(f"Навичку завантажено: {module_name}")
             except Exception as e:
                 logger.error(f"Помилка завантаження навички {module_name}: {e}")
 
@@ -342,6 +344,7 @@ class JarvisUltimate:
             print(f"{Fore.MAGENTA}🧠 Завантажено динамічних навичок: {len(self.dynamic_skills)}")
 
     def cmd_learn_skill(self, cmd: str) -> str:
+        logger.info(f"cmd_learn_skill: {cmd!r}")
         STOP = ["створи навичку", "навчись", "напиши нову функцію", "щоб ти", "для"]
         request = self._strip_words(cmd, STOP)
 
@@ -380,6 +383,7 @@ class JarvisUltimate:
     # КОМАНДИ — ПОГОДА
     # -----------------------------------------------------------------------
     def cmd_scrape_weather(self, cmd: str) -> str:
+        logger.info(f"cmd_scrape_weather: {cmd!r}")
         self.audio.speak("Збираю повне метеозведення...")
 
         sinoptik = self.scraper.get_sinoptik_weather("суми")
@@ -411,6 +415,7 @@ class JarvisUltimate:
         return "CONTINUE"
 
     def cmd_weather(self, cmd: str) -> str:
+        logger.info(f"cmd_weather: {cmd!r}")
         self.audio.speak("Запитую метеозведення...")
         report = self.scraper.get_weather_from_wttr("Sumy")
         self.audio.speak(report)
@@ -420,6 +425,7 @@ class JarvisUltimate:
     # КОМАНДИ — НОВИНИ
     # -----------------------------------------------------------------------
     def cmd_scrape_news(self, cmd: str) -> str:
+        logger.info(f"cmd_scrape_news: {cmd!r}")
         self.audio.speak("Сканую стрічку Укрінформу...")
         result = self.scraper.get_ukrinform_news(limit=5)
         self.audio.speak(result)
@@ -429,6 +435,7 @@ class JarvisUltimate:
     # КОМАНДИ — YOUTUBE
     # -----------------------------------------------------------------------
     def cmd_play_youtube(self, cmd: str) -> str:
+        logger.info(f"cmd_play_youtube: {cmd!r}")
         STOP = [
             "увімкни", "вруби", "запусти пісню", "запусти відео",
             "грай", "включи", "на ютубі", "на youtube",
@@ -454,6 +461,7 @@ class JarvisUltimate:
         return "CONTINUE"
 
     def cmd_search_youtube(self, cmd: str) -> str:
+        logger.info(f"cmd_search_youtube: {cmd!r}")
         STOP = [
             "знайди", "пошук", "що є на ютубі про",
             "на ютубі", "на youtube", "в ютубі", "в youtube",
@@ -481,14 +489,17 @@ class JarvisUltimate:
     # КОМАНДИ — ШІ / ОСОБИСТІСТЬ
     # -----------------------------------------------------------------------
     def cmd_switch_ai(self, cmd: str) -> str:
+        logger.info(f"cmd_switch_ai: {cmd!r}")
         self.llm.switch_provider(cmd)
         return "CONTINUE"
 
     def cmd_personality(self, cmd: str) -> str:
+        logger.info(f"cmd_personality: {cmd!r}")
         self.llm.set_personality(cmd)
         return "CONTINUE"
 
     def cmd_check_ai(self, cmd: str) -> str:
+        logger.info(f"cmd_check_ai: {cmd!r}")
         status_msg = self.llm.get_status()
         print(f"{Fore.CYAN}ℹ️  {status_msg}")
         self.audio.speak(status_msg)
@@ -498,6 +509,7 @@ class JarvisUltimate:
     # КОМАНДИ — ФІНАНСИ
     # -----------------------------------------------------------------------
     def cmd_finance(self, cmd: str) -> str:
+        logger.info(f"cmd_finance: {cmd!r}")
         try:
             res = requests.get("https://api.monobank.ua/bank/currency", timeout=5)
             res.raise_for_status()
@@ -519,18 +531,23 @@ class JarvisUltimate:
     # КОМАНДИ — СИСТЕМНІ
     # -----------------------------------------------------------------------
     def cmd_timer(self, cmd: str) -> str:
+        logger.info(f"cmd_timer: {cmd!r}")
         return self.sys_actions.cmd_timer(cmd)
 
     def cmd_hardware_control(self, cmd: str) -> str:
+        logger.info(f"cmd_hardware_control: {cmd!r}")
         return self.sys_actions.cmd_hardware_control(cmd)
 
     def cmd_apps_and_os(self, cmd: str) -> str:
+        logger.info(f"cmd_apps_and_os: {cmd!r}")
         return self.sys_actions.cmd_apps_and_os(cmd)
 
     def cmd_system_exit(self, cmd: str) -> str:
+        logger.info(f"cmd_system_exit: {cmd!r}")
         return self.sys_actions.cmd_system_exit(cmd)
 
     def cmd_stop_voice(self, cmd: str) -> str:
+        logger.info(f"cmd_stop_voice: {cmd!r}")
         self.output_queue.put("<CLEAR_QUEUE>")
         return "CONTINUE"
 
@@ -538,6 +555,7 @@ class JarvisUltimate:
     # КОМАНДИ — VISION
     # -----------------------------------------------------------------------
     def cmd_vision(self, cmd: str) -> str:
+        logger.info(f"cmd_vision: {cmd!r}")
         self.audio.speak("Аналізую екран...")
         shot_path = "temp_screen.png"
         try:
@@ -572,6 +590,7 @@ class JarvisUltimate:
     # КОМАНДИ — КОД
     # -----------------------------------------------------------------------
     def cmd_code_assistant(self, cmd: str) -> str:
+        logger.info(f"cmd_code_assistant: {cmd!r}")
         n_cmd = self._normalize_filename(cmd)
         match = re.search(r'([a-zA-Z0-9_\-\.]+\.[a-zA-Z0-9]{2,5})', n_cmd)
         if not match:
@@ -635,6 +654,7 @@ class JarvisUltimate:
     # КОМАНДИ — КАЛЕНДАР ТА ДИКТУВАННЯ
     # -----------------------------------------------------------------------
     def cmd_calendar(self, cmd: str) -> str:
+        logger.info(f"cmd_calendar: {cmd!r}")
         date_str = datetime.now().strftime("%Y-%m-%d")
         if "завтра" in cmd:
             date_str = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
@@ -656,6 +676,7 @@ class JarvisUltimate:
         return "CONTINUE"
 
     def cmd_dictation(self, cmd: str) -> str:
+        logger.info(f"cmd_dictation: {cmd!r}")
         self.audio.speak("Режим диктування. Слухаю.")
         text = self.audio.listen_for_command(dictation_mode=True)
         if not text:
@@ -692,6 +713,7 @@ class JarvisUltimate:
                         backend="lite"
                     ))
                 if results:
+                    logger.info(f"_web_search: знайдено {len(results)} результатів для {query!r}")
                     return results
                 logger.warning(f"DDGS: порожній результат (спроба {attempt + 1})")
             except Exception as e:
@@ -852,8 +874,10 @@ class JarvisUltimate:
             triggers = config.TRIGGERS.get(key, [])
             for trigger in sorted(triggers, key=len, reverse=True):
                 if trigger in cmd:
+                    logger.info(f"execute_command: маршрут '{key}' для команди {cmd!r}")
                     return handler(cmd)
 
+        logger.info(f"execute_command: маршрут не знайдено, передаю в handle_ai_chat: {cmd!r}")
         return self.handle_ai_chat(cmd)
 
 
