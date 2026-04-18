@@ -4,7 +4,6 @@
 тому тести не потребують мікрофону, динаміків чи мережі.
 """
 import sys
-import types
 import queue
 import threading
 from unittest.mock import MagicMock, patch
@@ -59,6 +58,10 @@ def jarvis_instance():
     mock_audio.speak = MagicMock()
     mock_audio.current_volume = 50
 
+    mock_observer = MagicMock()
+    mock_observer_instance = MagicMock()
+    mock_observer.return_value = mock_observer_instance
+
     patches = [
         patch("main.JarvisDatabase",    return_value=MagicMock()),
         patch("main.JarvisSmartMemory", return_value=MagicMock()),
@@ -68,16 +71,22 @@ def jarvis_instance():
         patch("main.LLMHandler",        return_value=MagicMock()),
         patch("main.SystemActions",     return_value=MagicMock()),
         patch("main.keyboard.add_hotkey"),
-        patch("main.Observer"),
+        patch("main.Observer",          mock_observer),
+        patch("main.DownloadHandler",   return_value=MagicMock()),
     ]
 
-    for p in patches:
-        p.start()
+    started = []
+    try:
+        for p in patches:
+            p.start()
+            started.append(p)
 
-    from main import JarvisUltimate
-    jarvis = JarvisUltimate()
-
-    yield jarvis
-
-    for p in patches:
-        p.stop()
+        from main import JarvisUltimate
+        jarvis = JarvisUltimate()
+        yield jarvis
+    finally:
+        for p in reversed(started):
+            try:
+                p.stop()
+            except RuntimeError:
+                pass
