@@ -834,6 +834,53 @@ class JarvisUltimate:
 
         return "CONTINUE"
 
+    def cmd_find_file(self, cmd: str) -> str:
+        """Пошук файлу на диску: 'знайди файл <назва>'"""
+        logger.info(f"cmd_find_file: {cmd!r}")
+        query = cmd
+        for t in config.TRIGGERS.get("find_file", []):
+            query = query.replace(t, "")
+        query = query.strip()
+
+        if not query:
+            self.audio.speak("Назвіть ім'я файлу або частину назви для пошуку.")
+            return "CONTINUE"
+
+        self.audio.speak(f"Шукаю файл {query}...")
+
+        search_roots = [
+            os.getcwd(),
+            os.path.expanduser("~"),
+            os.getenv("JARVIS_DRIVE", ""),
+        ]
+
+        found = []
+        for root in search_roots:
+            if not root or not os.path.isdir(root):
+                continue
+            try:
+                for dirpath, _, filenames in os.walk(root):
+                    for filename in filenames:
+                        if query.lower() in filename.lower():
+                            found.append(os.path.join(dirpath, filename))
+                    if len(found) >= 5:
+                        break
+            except PermissionError:
+                pass
+            if len(found) >= 5:
+                break
+
+        if not found:
+            self.audio.speak(f"Файл із назвою {query} не знайдено.")
+        elif len(found) == 1:
+            self.audio.speak(f"Знайдено: {found[0]}")
+        else:
+            names = ", ".join(os.path.basename(p) for p in found)
+            self.audio.speak(f"Знайдено {len(found)} файли: {names}")
+            logger.info(f"cmd_find_file: знайдено — {found}")
+
+        return "CONTINUE"
+
     def cmd_ai_chat(self, cmd: str) -> str:
         """Звичайний LLM чат — fallback"""
         logger.info(f"cmd_ai_chat: {cmd!r}")
@@ -887,6 +934,7 @@ class JarvisUltimate:
             ("stop_voice",       self.cmd_stop_voice),
             ("memorize",         self.cmd_memorize),
             ("web_search",       self.cmd_web_search),
+            ("find_file",        self.cmd_find_file),
         ]
 
         for key, handler in ROUTES:
