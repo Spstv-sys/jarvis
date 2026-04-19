@@ -18,7 +18,8 @@ class LLMHandler:
     MAX_SHORT_TERM = 20
     CACHE_MAX      = 30
     SENTENCE_END   = re.compile(r'(?<=[.!?])\s+')
-    _CODE_MARKERS  = ('def ', 'class ', 'import ', 'from ', '    return ', '#!/', 'if __name__')
+    _CODE_MARKERS  = ('def ', 'class ', 'import ', 'from ', 'return ', '#!/', 'if __name__')
+    _CODE_SPOKEN_MSG = "Відповідь містить програмний код. Результат збережено або відображено на екрані."
 
     def __init__(self, db, brain, audio):
         self.db    = db
@@ -189,7 +190,7 @@ class LLMHandler:
     def _looks_like_code(self, text: str) -> bool:
         """Повертає True якщо текст схожий на код (містить характерні патерни)."""
         lines = text.splitlines()
-        code_lines = sum(1 for l in lines if any(m in l for m in self._CODE_MARKERS))
+        code_lines = sum(1 for line in lines if any(m in line for m in self._CODE_MARKERS))
         return code_lines >= 2
 
     def _stream_and_speak(self, prompt: str) -> str | None:
@@ -242,7 +243,7 @@ class LLMHandler:
                     self.audio.speak(buffer.strip())
 
                 if self._looks_like_code(full_text):
-                    self.audio.speak("Відповідь містить програмний код. Результат збережено або відображено на екрані.")
+                    self.audio.speak(self._CODE_SPOKEN_MSG)
 
             else:
                 # Gemini — стандартний виклик, але озвучення по реченнях
@@ -253,7 +254,7 @@ class LLMHandler:
                         if sentence.strip() and not self._looks_like_code(sentence.strip()):
                             self.audio.speak(sentence.strip())
                     if self._looks_like_code(full_text):
-                        self.audio.speak("Відповідь містить програмний код. Результат збережено або відображено на екрані.")
+                        self.audio.speak(self._CODE_SPOKEN_MSG)
 
             return full_text.strip() if full_text else None
 
