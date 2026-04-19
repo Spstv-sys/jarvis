@@ -60,7 +60,7 @@ class LLMHandler:
 
         # Ollama — ініціалізуємо тільки якщо сервер доступний
         self.ollama_client = None
-        self.ollama_model  = "llama3"
+        self.ollama_model  = "qwen2.5:latest"
         try:
             import requests
             r = requests.get("http://localhost:11434", timeout=2)
@@ -88,12 +88,21 @@ class LLMHandler:
 
     def switch_provider(self, cmd: str) -> None:
         cmd_lower = cmd.lower()
+        
         if "deepseek" in cmd_lower or "діпсік" in cmd_lower:
-            self.active_provider = "deepseek"
-            self.audio.speak("Перемикаю нейромережу на хмарний DeepSeek.")
+            if self.deepseek_client:  # ✅ Додана перевірка
+                self.active_provider = "deepseek"
+                self.audio.speak("Перемикаю нейромережу на хмарний DeepSeek.")
+            else:
+                self.audio.speak("DeepSeek недоступний. Перевірте DEEPSEEK_API_KEY у файлі .env.")
+        
         elif "gemini" in cmd_lower or "джеміні" in cmd_lower:
-            self.active_provider = "gemini"
-            self.audio.speak("Перемикаю нейромережу на Gemini.")
+            if self.gemini_client:  # ✅ ГОЛОВНЕ ВИПРАВЛЕННЯ!
+                self.active_provider = "gemini"
+                self.audio.speak("Перемикаю нейромережу на Gemini.")
+            else:
+                self.audio.speak("Gemini недоступний. Перевірте GEMINI_API_KEY у файлі .env.")
+        
         elif "ollama" in cmd_lower or "олама" in cmd_lower or "локальн" in cmd_lower:
             if self.ollama_client:
                 self.active_provider = "ollama"
@@ -249,7 +258,7 @@ class LLMHandler:
         # ✅ brain.search() і get_recent_facts() паралельно — економить 300-500мс
         print(f"{Fore.YELLOW}🔍 Пошук контексту (паралельно)...")
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-            future_context = pool.submit(self.brain.search, user_text, 3)
+            future_context = pool.submit(self.brain.search, user_text, 10)
             future_facts   = pool.submit(self.db.get_recent_facts, 5)
             knowledge_context = future_context.result()
             recent_facts      = future_facts.result()

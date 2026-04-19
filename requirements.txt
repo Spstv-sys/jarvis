@@ -6,6 +6,9 @@ google-generativeai
 openai
 ollama
 
+# Сертифікати для безпечних запитів
+certifi
+
 # --- Аудіо, Голос та Розпізнавання ---
 SpeechRecognition
 openwakeword
