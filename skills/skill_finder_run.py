@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 from rapidfuzz import process
 
 TRIGGERS = ["запусти скрипт", "виконай програму", "відкрий інструмент"]
@@ -34,7 +35,7 @@ def execute(cmd, jarvis):
 
     try:
         filepath = os.path.join(code_dir, match)
-        result = subprocess.run(["python", filepath], capture_output=True, text=True, timeout=15)
+        result = subprocess.run([sys.executable, filepath], capture_output=True, text=True, timeout=15)
         
         if result.stderr:
             return f"Помилка у скрипті: {result.stderr[-150:]}"

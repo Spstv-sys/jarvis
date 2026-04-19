@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 
 # Робимо тригери максимально природними
 TRIGGERS = [
@@ -59,7 +60,7 @@ def execute(cmd, jarvis):
     # Запуск обраного скрипта
     try:
         filepath = os.path.join(code_dir, selected_file)
-        result = subprocess.run(["python", filepath], capture_output=True, text=True, timeout=15)
+        result = subprocess.run([sys.executable, filepath], capture_output=True, text=True, timeout=15)
         
         if result.stderr:
             return f"Під час роботи скрипта виникла помилка: {result.stderr[-150:]}"
