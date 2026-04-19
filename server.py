@@ -129,18 +129,7 @@ def start_jarvis() -> None:
         jarvis_ready.set()
 
     if jarvis:
-        while jarvis.is_running:
-            try:
-                cmd = jarvis.input_queue.get(timeout=1)
-                if cmd:
-                    threading.Thread(
-                        target=jarvis._process_command,
-                        args=(cmd,),
-                        daemon=True,
-                        name="BrainWorker"
-                    ).start()
-            except queue.Empty:
-                pass
+        jarvis.start_processing_loop()
 
 # ---------------------------------------------------------------------------
 # Lifecycle

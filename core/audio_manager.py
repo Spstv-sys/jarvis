@@ -28,13 +28,25 @@ class AudioManager:
     }
     _SECONDS_PER_CHAR = 0.08
 
-    def __init__(self, stop_event: threading.Event):
+    def __init__(self, stop_event: threading.Event, output_callback=None):
+        """Initialise audio subsystem.
+
+        Args:
+            stop_event:       Shared ``threading.Event`` used to interrupt TTS playback.
+            output_callback:  Optional ``Callable[[str], None]``.  When provided,
+                              :meth:`speak` routes text through this callback instead
+                              of performing TTS directly.  The caller is responsible
+                              for consuming the callback and later calling
+                              :meth:`speak_tts` from the appropriate thread.
+                              This removes the need for monkey-patching ``speak``.
+        """
         self.stop_event     = stop_event
+        self._output_cb     = output_callback
         self.current_volume = 0
         self.whisper_model  = None
         self._speak_lock    = threading.Lock()
         self._noise_calibrated = False
-        self._oww_ready     = threading.Event()  # сигнал готовності wake word
+        self._oww_ready     = threading.Event()
 
         print(f"{Fore.CYAN}⚙️ Ініціалізація нейронного слуху...")
         try:
@@ -53,7 +65,6 @@ class AudioManager:
                 print(f"{Fore.RED}⚠️ Запуск Whisper на CPU...")
                 self.whisper_model = self._load_whisper(force_cpu=True)
 
-        # FIX #1: завантаження моделей wake word у фоновому треді — не блокує старт
         threading.Thread(target=self._load_oww_model, daemon=True, name="OWWLoader").start()
 
     def _load_oww_model(self):
@@ -116,6 +127,15 @@ class AudioManager:
             logger.error(f"Помилка програвання FX '{sound_type}': {e}")
 
     def speak(self, text: str) -> None:
+        """Route *text* through the output callback when one is configured,
+        otherwise fall back to direct TTS via :meth:`speak_tts`."""
+        if self._output_cb is not None:
+            self._output_cb(text)
+        else:
+            self.speak_tts(text)
+
+    def speak_tts(self, text: str) -> None:
+        """Perform TTS synthesis and blocking audio playback directly."""
         clean_text = re.sub(r'[*#_]', '', text).strip()
         if not clean_text:
             return
