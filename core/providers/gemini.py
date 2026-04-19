@@ -39,8 +39,10 @@ class GeminiProvider(BaseLLMProvider):
             return None
 
     def stream(self, prompt: str) -> Iterator[str]:
-        # Gemini SDK does not support token-level streaming in the same way;
-        # yield the complete response as a single chunk.
+        # Streaming via generate_content_stream() is intentionally not used here;
+        # yielding the complete response as a single chunk provides a uniform
+        # Iterator[str] interface across all providers without adding Gemini-specific
+        # streaming state management to the caller.
         result = self.generate(prompt)
         if result:
             yield result

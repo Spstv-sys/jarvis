@@ -26,6 +26,11 @@ class DeepSeekProvider(BaseLLMProvider):
     def available(self) -> bool:
         return self._client is not None
 
+    @property
+    def raw_client(self):
+        """Expose the underlying OpenAI client for direct API access."""
+        return self._client
+
     def generate(self, prompt: str) -> str | None:
         try:
             res = self._client.chat.completions.create(

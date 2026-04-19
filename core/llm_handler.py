@@ -79,12 +79,12 @@ class LLMHandler:
     @property
     def deepseek_client(self):
         p = self._providers.get("deepseek")
-        return p._client if p is not None else None
+        return p.raw_client if p is not None else None
 
     @property
     def ollama_client(self):
         p = self._providers.get("ollama")
-        return p._client if p is not None else None
+        return p.raw_client if p is not None else None
 
     # -------------------------------------------------------------------------
     # ОСОБИСТІСТЬ / ПРОВАЙДЕР

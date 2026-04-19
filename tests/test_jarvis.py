@@ -130,11 +130,16 @@ def test_db_add_fact_and_recall(db_instance):
 
 
 def test_db_fact_limit_enforced(db_instance):
-    """Adding more facts than MAX_FACTS should keep only MAX_FACTS."""
-    for i in range(db_instance.MAX_FACTS + 10):
-        db_instance.add_fact(f"факт {i}")
+    """Adding more facts than MAX_FACTS keeps at most MAX_FACTS and drops oldest."""
+    first_fact = "перший факт — має бути видалений"
+    db_instance.add_fact(first_fact)
+    for i in range(db_instance.MAX_FACTS):
+        db_instance.add_fact(f"новий факт {i}")
+
     facts = db_instance.get_recent_facts(limit=db_instance.MAX_FACTS + 20)
     assert len(facts) <= db_instance.MAX_FACTS
+    # The very first fact must have been evicted
+    assert first_fact not in facts
 
 
 # ===========================================================================
