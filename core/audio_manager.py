@@ -141,7 +141,6 @@ class AudioManager:
             return
 
         print(f"{Fore.GREEN}🤖 [ДЖАРВІС]: {clean_text}")
-        self.stop_event.clear()
 
         tmp      = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False)
         tmp_path = tmp.name
@@ -160,6 +159,7 @@ class AudioManager:
             try:
                 self._run_async(generate_audio())
                 pygame.mixer.music.load(tmp_path)
+                self.stop_event.clear()
                 pygame.mixer.music.play()
 
                 max_duration = max(10, len(clean_text) * self._SECONDS_PER_CHAR)
