@@ -504,8 +504,8 @@ class JarvisUltimate:
                 for fname in filenames:
                     if search_term.lower() in fname.lower():
                         found.append(os.path.join(dirpath, fname))
-                if len(found) >= 5:
-                    break
+                    if len(found) >= 5:
+                        break
             if len(found) >= 5:
                 break
 
@@ -562,8 +562,10 @@ class JarvisUltimate:
                 content = f.read()[:8000]
             if "виправ" in cmd:
                 self.audio.speak("Виправляю архітектуру...")
-                fixed = self.llm.generate_response(prompt="Виправ цей код. ПОВЕРНИ ТІЛЬКИ КОД без форматування markdown та коментарів:
-" + content, is_system_call=True)
+                fixed = self.llm.generate_response(
+                    prompt="Виправ цей код. ПОВЕРНИ ТІЛЬКИ КОД без форматування markdown та коментарів:\n" + content,
+                    is_system_call=True
+                )
                 if not fixed:
                     self.audio.speak("Нейромережа не змогла згенерувати виправлення.")
                     return "CONTINUE"
