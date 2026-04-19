@@ -74,94 +74,94 @@ class JarvisScraper:
     # -------------------------------------------------------------------------
 
     def get_sinoptik_weather(self, city: str = "суми") -> str:
-            # ✅ Правильна структура URL Синоптика
-            url = f"https://sinoptik.ua/погода-{city}"
-            logger.info(f"Запит до Синоптика: {url}")
+        # ✅ Правильна структура URL Синоптика
+        url = f"https://sinoptik.ua/погода-{city}"
+        logger.info(f"Запит до Синоптика: {url}")
 
-            try:
-                # ✅ verify=False + НЕ кодуємо кирилицю — сайт сам обробляє
-                response = self.session.get(
-                    url,
-                    timeout=10,
-                    #verify=False,
-                    allow_redirects=True
-                )
-                response.raise_for_status()
-                response.encoding = 'utf-8'
-            except requests.exceptions.Timeout:
-                return "Синоптик не відповідає (timeout)."
-            except requests.exceptions.ConnectionError:
-                return "Немає з'єднання з Синоптиком."
-            except requests.exceptions.HTTPError as e:
-                code = e.response.status_code if e.response is not None else "невідомо"
-                return f"Синоптик повернув помилку: {code}."
-            except Exception as e:
-                logger.error(f"Невідома помилка Синоптика: {e}", exc_info=True)
-                return "Метеостанція Синоптик тимчасово недоступна."
+        try:
+            # ✅ verify=False + НЕ кодуємо кирилицю — сайт сам обробляє
+            response = self.session.get(
+                url,
+                timeout=10,
+                #verify=False,
+                allow_redirects=True
+            )
+            response.raise_for_status()
+            response.encoding = 'utf-8'
+        except requests.exceptions.Timeout:
+            return "Синоптик не відповідає (timeout)."
+        except requests.exceptions.ConnectionError:
+            return "Немає з'єднання з Синоптиком."
+        except requests.exceptions.HTTPError as e:
+            code = e.response.status_code if e.response is not None else "невідомо"
+            return f"Синоптик повернув помилку: {code}."
+        except Exception as e:
+            logger.error(f"Невідома помилка Синоптика: {e}", exc_info=True)
+            return "Метеостанція Синоптик тимчасово недоступна."
 
-            soup = self._parse(response.text)
+        soup = self._parse(response.text)
 
-            # --- Поточна температура ---
-            TEMP_SELECTORS = [
-                ('div', {'class': 'cur-temp'}),
-                ('p',   {'class': 'today-temp'}),
-                ('div', {'class': 'temperature'}),
-                ('span',{'class': 'temp'}),
-                ('div', {'class': 'main-temp'}),
-            ]
-            temp_block = None
-            for tag, attrs in TEMP_SELECTORS:
-                temp_block = soup.find(tag, attrs)
-                if temp_block:
+        # --- Поточна температура ---
+        TEMP_SELECTORS = [
+            ('div', {'class': 'cur-temp'}),
+            ('p',   {'class': 'today-temp'}),
+            ('div', {'class': 'temperature'}),
+            ('span',{'class': 'temp'}),
+            ('div', {'class': 'main-temp'}),
+        ]
+        temp_block = None
+        for tag, attrs in TEMP_SELECTORS:
+            temp_block = soup.find(tag, attrs)
+            if temp_block:
+                break
+
+        if not temp_block:
+            match = soup.find(string=re.compile(r'[−\-]?\d{1,2}\s*°'))
+            if match:
+                temp_block = match.parent
+
+        if not temp_block:
+            logger.warning("Синоптик: не знайдено температуру, перемикаюсь на wttr.in")
+            return self.get_weather_from_wttr()
+
+        temp_now = self._clean_text(temp_block.get_text())
+
+        # --- Опис ---
+        desc_block = soup.find('p', {'class': 'w-KCBNr0'})
+        if not desc_block:
+            for tag, attrs in [
+                ('div', {'class': 'wDescription'}),
+                ('div', {'class': 'description'}),
+                ('div', {'class': 'weather-description'}),
+            ]:
+                desc_block = soup.find(tag, attrs)
+                if desc_block:
                     break
 
-            if not temp_block:
-                match = soup.find(string=re.compile(r'[−\-]?\d{1,2}\s*°'))
-                if match:
-                    temp_block = match.parent
+        description = (
+            self._clean_text(desc_block.get_text()).rstrip('.') if desc_block else None
+        )
 
-            if not temp_block:
-                logger.warning("Синоптик: не знайдено температуру, перемикаюсь на wttr.in")
-                return self.get_weather_from_wttr()
+        # --- Мін/Макс ---
+        minmax_block = soup.find('div', {'class': 'xQzkHBce'})
+        temp_min = temp_max = None
+        if minmax_block:
+            raw   = self._clean_text(minmax_block.get_text())
+            temps = re.findall(r'[+\-−]?\d{1,2}°', raw)
+            if len(temps) >= 2:
+                temp_min = self._voice_temp(temps[0])
+                temp_max = self._voice_temp(temps[1])
 
-            temp_now = self._clean_text(temp_block.get_text())
+        # --- Фінальна фраза ---
+        parts = [f"У місті {city} зараз {self._voice_temp(temp_now)}."]
+        if description:
+            parts.append(f"{description}.")
+        if temp_min and temp_max:
+            parts.append(f"Протягом дня від {temp_min} до {temp_max}.")
 
-            # --- Опис ---
-            desc_block = soup.find('p', {'class': 'w-KCBNr0'})
-            if not desc_block:
-                for tag, attrs in [
-                    ('div', {'class': 'wDescription'}),
-                    ('div', {'class': 'description'}),
-                    ('div', {'class': 'weather-description'}),
-                ]:
-                    desc_block = soup.find(tag, attrs)
-                    if desc_block:
-                        break
-
-            description = (
-                self._clean_text(desc_block.get_text()).rstrip('.') if desc_block else None
-            )
-
-            # --- Мін/Макс ---
-            minmax_block = soup.find('div', {'class': 'xQzkHBce'})
-            temp_min = temp_max = None
-            if minmax_block:
-                raw   = self._clean_text(minmax_block.get_text())
-                temps = re.findall(r'[+\-−]?\d{1,2}°', raw)
-                if len(temps) >= 2:
-                    temp_min = self._voice_temp(temps[0])
-                    temp_max = self._voice_temp(temps[1])
-
-            # --- Фінальна фраза ---
-            parts = [f"У місті {city} зараз {self._voice_temp(temp_now)}."]
-            if description:
-                parts.append(f"{description}.")
-            if temp_min and temp_max:
-                parts.append(f"Протягом дня від {temp_min} до {temp_max}.")
-
-            result = " ".join(parts)
-            logger.info(f"Погода отримана: {result}")
-            return result
+        result = " ".join(parts)
+        logger.info(f"Погода отримана: {result}")
+        return result
 
     # -------------------------------------------------------------------------
     # ПОГОДА: WTTR.IN

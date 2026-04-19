@@ -91,6 +91,9 @@ async def event_broadcaster() -> None:
 async def metrics_broadcaster() -> None:
     """Метрики системи — раз на секунду"""
     while True:
+        if not jarvis_ready.is_set():
+            await asyncio.sleep(1.0)
+            continue
         battery = psutil.sensors_battery()
         vol     = getattr(jarvis.audio, "current_volume", 0) if jarvis else 0
 
