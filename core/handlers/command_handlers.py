@@ -352,7 +352,7 @@ class CommandHandlers:
     # ==================================================================
     def cmd_find_file(self, cmd: str) -> str:
         logger.info(f"cmd_find_file: {cmd!r}")
-        search_term = cmd.replace("знайди файл", "").strip()
+        search_term = strip_triggers(cmd, config.TRIGGERS["find_file"])
         if not search_term:
             self.audio.speak("Назву якого файлу шукати?")
             return "CONTINUE"
