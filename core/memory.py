@@ -1,62 +1,8 @@
 import sqlite3
-import chromadb
-import time
 import logging
 import threading
 
 logger = logging.getLogger(__name__)
-
-# ─────────────────────────────────────────────
-# ВЕКТОРНА ПАМ'ЯТЬ (ChromaDB)
-# ─────────────────────────────────────────────
-class JarvisBrain:
-    MAX_MEMORIES = 500  # ✅ Обмеження розміру колекції
-
-    def __init__(self, persist_directory="jarvis_vector_db"):
-        self.client = chromadb.PersistentClient(path=persist_directory)
-        self.collection = self.client.get_or_create_collection(name="long_term_memory")
-        self._lock = threading.Lock()  # ✅ Потокобезпека
-
-    def memorize(self, text: str, source: str = "dialogue") -> None:
-        if not text or not text.strip():
-            return
-
-        # ✅ Унікальний ID через thread ID — виключає колізії
-        doc_id = f"mem_{int(time.time() * 1000)}_{threading.get_ident()}"
-
-        with self._lock:
-            # ✅ Обрізаємо колекцію якщо перевищено ліміт
-            try:
-                count = self.collection.count()
-                if count >= self.MAX_MEMORIES:
-                    oldest = self.collection.get(limit=count - self.MAX_MEMORIES + 1)
-                    if oldest and oldest['ids']:
-                        self.collection.delete(ids=oldest['ids'])
-            except Exception as e:
-                logger.warning(f"Не вдалось обрізати колекцію: {e}")
-
-            self.collection.add(
-                documents=[text],
-                metadatas=[{"source": source, "ts": int(time.time())}],
-                ids=[doc_id]
-            )
-        logger.info(f"Векторна пам'ять оновлена: {text[:30]}...")
-
-    def recall(self, query: str, n_results: int = 2) -> list:
-        try:
-            with self._lock:
-                if self.collection.count() == 0:
-                    return []
-                results = self.collection.query(
-                    query_texts=[query],
-                    n_results=min(n_results, self.collection.count())
-                )
-            if results and results['documents'] and results['documents'][0]:
-                return results['documents'][0]
-        except Exception as e:
-            logger.error(f"Помилка вилучення з векторної БД: {e}")
-        return []
-
 
 # ─────────────────────────────────────────────
 # РЕЛЯЦІЙНА БД (SQLite)

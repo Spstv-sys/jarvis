@@ -6,13 +6,13 @@
 import sys
 import queue
 import threading
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, PropertyMock
 
 import pytest
 
 
 # ---------------------------------------------------------------------------
-# Заглушки для модулів, недоступних у CI (потребують root або Windows/аудіо)
+# Заглушки для модулів, недоступних у CI
 # ---------------------------------------------------------------------------
 def _stub_module(name: str) -> MagicMock:
     mod = MagicMock()
@@ -31,6 +31,7 @@ for _mod in (
     "pyaudio",
     "faster_whisper",
     "edge_tts",
+    "numpy",
     "screen_brightness_control",
     "chromadb",
     "watchdog",
@@ -46,16 +47,23 @@ for _mod in (
     "google",
     "google.genai",
     "bs4",
+    # provider sub-modules — stub so LLMHandler import doesn't fail
+    "core.providers",
+    "core.providers.base",
+    "core.providers.deepseek",
+    "core.providers.gemini",
+    "core.providers.ollama",
 ):
     _stub_module(_mod)
 
 
 @pytest.fixture
 def jarvis_instance():
-    """Повертає екземпляр JarvisUltimate з замоканими залежностями."""
+    """Return a JarvisUltimate instance with all external dependencies mocked."""
 
     mock_audio = MagicMock()
     mock_audio.speak = MagicMock()
+    mock_audio.speak_tts = MagicMock()
     mock_audio.current_volume = 50
 
     mock_observer = MagicMock()
@@ -70,6 +78,7 @@ def jarvis_instance():
         patch("main.AudioManager",      return_value=mock_audio),
         patch("main.LLMHandler",        return_value=MagicMock()),
         patch("main.SystemActions",     return_value=MagicMock()),
+        patch("main.CommandHandlers",   return_value=MagicMock()),
         patch("main.keyboard.add_hotkey"),
         patch("main.Observer",          mock_observer),
         patch("main.DownloadHandler",   return_value=MagicMock()),

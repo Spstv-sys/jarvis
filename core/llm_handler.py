@@ -5,11 +5,11 @@ import hashlib
 import threading
 import concurrent.futures
 from collections import deque
-from openai import OpenAI
-from google import genai
 from colorama import Fore
 
 import config
+from core.providers import DeepSeekProvider, GeminiProvider, OllamaProvider
+from core.providers.base import BaseLLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -32,49 +32,59 @@ class LLMHandler:
         self._response_cache: dict = {}
 
         print(f"{Fore.CYAN}⚙️ Ініціалізація Мовних Моделей (LLM)...")
+        self._providers: dict[str, BaseLLMProvider] = {}
         self._init_providers()
 
     # -------------------------------------------------------------------------
     # ІНІЦІАЛІЗАЦІЯ ПРОВАЙДЕРІВ
     # -------------------------------------------------------------------------
     def _init_providers(self) -> None:
-        # DeepSeek
         deepseek_key = os.getenv("DEEPSEEK_API_KEY")
         if deepseek_key:
-            self.deepseek_client = OpenAI(
-                api_key=deepseek_key,
-                base_url="https://api.deepseek.com/v1",
-                timeout=30
-            )
+            self._providers["deepseek"] = DeepSeekProvider(api_key=deepseek_key)
             logger.info("DeepSeek підключено.")
         else:
             logger.error("Не знайдено DEEPSEEK_API_KEY")
-            self.deepseek_client = None
 
-        # Gemini
         gemini_key = os.getenv("GEMINI_API_KEY")
         if gemini_key:
-            self.gemini_client = genai.Client(api_key=gemini_key)
+            self._providers["gemini"] = GeminiProvider(api_key=gemini_key)
             logger.info("Gemini підключено.")
         else:
             logger.error("Не знайдено GEMINI_API_KEY")
-            self.gemini_client = None
 
-        # Ollama — ініціалізуємо тільки якщо сервер доступний
-        self.ollama_client = None
-        self.ollama_model  = "qwen2.5:latest"
         try:
-            import requests
-            r = requests.get("http://localhost:11434", timeout=2)
+            import requests as _req
+            r = _req.get("http://localhost:11434", timeout=2)
             if r.ok:
-                self.ollama_client = OpenAI(
-                    base_url="http://localhost:11434/v1",
-                    api_key="ollama",
-                    timeout=60
-                )
+                self._providers["ollama"] = OllamaProvider()
                 logger.info("Ollama підключено.")
         except Exception:
-            logger.warning("Ollama недоступна — пропускаємо ��ніціалізацію.")
+            logger.warning("Ollama недоступна — пропускаємо ініціалізацію.")
+
+    def _get_active_provider(self) -> BaseLLMProvider | None:
+        return self._providers.get(self.active_provider)
+
+    # -------------------------------------------------------------------------
+    # Backward-compatibility properties
+    # -------------------------------------------------------------------------
+    @property
+    def gemini_client(self):
+        """Expose the raw genai.Client for Vision API calls."""
+        p = self._providers.get("gemini")
+        if p is not None and p.available:
+            return p.raw_client
+        return None
+
+    @property
+    def deepseek_client(self):
+        p = self._providers.get("deepseek")
+        return p._client if p is not None else None
+
+    @property
+    def ollama_client(self):
+        p = self._providers.get("ollama")
+        return p._client if p is not None else None
 
     # -------------------------------------------------------------------------
     # ОСОБИСТІСТЬ / ПРОВАЙДЕР
@@ -90,23 +100,20 @@ class LLMHandler:
 
     def switch_provider(self, cmd: str) -> None:
         cmd_lower = cmd.lower()
-        
         if "deepseek" in cmd_lower or "діпсік" in cmd_lower:
-            if self.deepseek_client:  # ✅ Додана перевірка
+            if "deepseek" in self._providers:
                 self.active_provider = "deepseek"
                 self.audio.speak("Перемикаю нейромережу на хмарний DeepSeek.")
             else:
                 self.audio.speak("DeepSeek недоступний. Перевірте DEEPSEEK_API_KEY у файлі .env.")
-        
         elif "gemini" in cmd_lower or "джеміні" in cmd_lower:
-            if self.gemini_client:  # ✅ ГОЛОВНЕ ВИПРАВЛЕННЯ!
+            if "gemini" in self._providers:
                 self.active_provider = "gemini"
                 self.audio.speak("Перемикаю нейромережу на Gemini.")
             else:
                 self.audio.speak("Gemini недоступний. Перевірте GEMINI_API_KEY у файлі .env.")
-        
         elif "ollama" in cmd_lower or "олама" in cmd_lower or "локальн" in cmd_lower:
-            if self.ollama_client:
+            if "ollama" in self._providers:
                 self.active_provider = "ollama"
                 self.audio.speak("Перемикаю нейромережу на локальну базу.")
             else:
@@ -129,22 +136,19 @@ class LLMHandler:
 
     def _set_cached(self, prompt: str, response: str) -> None:
         key = hashlib.md5(prompt.encode()).hexdigest()
-        # ✅ Обрізаємо кеш якщо переповнений — видаляємо найстарший запис
         if len(self._response_cache) >= self.CACHE_MAX:
             oldest = next(iter(self._response_cache))
             del self._response_cache[oldest]
         self._response_cache[key] = response
 
     # -------------------------------------------------------------------------
-    # ГЕНЕРАЦІЯ (одиночний запит — без стримінгу)
+    # ГЕНЕРАЦІЯ
     # -------------------------------------------------------------------------
     def generate_response(self, prompt: str, is_system_call: bool = False) -> str | None:
-        # ✅ Перевіряємо кеш — миттєва відповідь ��ля повторних запитів
         cached = self._get_cached(prompt)
         if cached:
             logger.info("LLM: відповідь з кешу.")
             return cached
-
         try:
             ans = self._call_provider(prompt)
             if ans is None:
@@ -158,103 +162,47 @@ class LLMHandler:
             return None
 
     def _call_provider(self, prompt: str) -> str | None:
-        """Звичайний (не стримінговий) виклик активного провайдера."""
-        if self.active_provider == "deepseek" and self.deepseek_client:
-            res = self.deepseek_client.chat.completions.create(
-                model="deepseek-chat",
-                messages=[{"role": "user", "content": prompt}]
-            )
-            return res.choices[0].message.content
-
-        elif self.active_provider == "ollama" and self.ollama_client:
-            res = self.ollama_client.chat.completions.create(
-                model=self.ollama_model,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            return res.choices[0].message.content
-
-        elif self.active_provider == "gemini" and self.gemini_client:
-            res = self.gemini_client.models.generate_content(
-                model='gemini-2.0-flash',
-                contents=prompt
-            )
-            return res.text
-
-        else:
+        provider = self._get_active_provider()
+        if provider is None:
             logger.error(f"Провайдер '{self.active_provider}' недоступний.")
             return None
+        return provider.generate(prompt)
 
     # -------------------------------------------------------------------------
-    # СТРИМІНГ + TTS ПО РЕЧЕННЯХ
+    # СТРИМІНГ + TTS
     # -------------------------------------------------------------------------
     def _looks_like_code(self, text: str) -> bool:
-        """Повертає True якщо текст схожий на код (містить характерні патерни)."""
         lines = text.splitlines()
         code_lines = sum(1 for line in lines if any(m in line for m in self._CODE_MARKERS))
         return code_lines >= 2
 
     def _stream_and_speak(self, prompt: str) -> str | None:
-        """
-        ✅ Стримінг токенів → розбивка на речення → TTS одразу.
-        Користувач чує першу відповідь через ~0.5с замість 3-5с.
-        """
         try:
+            provider = self._get_active_provider()
+            if provider is None:
+                logger.error(f"Клієнт {self.active_provider} недоступний.")
+                return None
+
             full_text = ""
             buffer    = ""
 
-            if self.active_provider in ("deepseek", "ollama"):
-                client = (
-                    self.deepseek_client
-                    if self.active_provider == "deepseek"
-                    else self.ollama_client
-                )
-                model = (
-                    "deepseek-chat"
-                    if self.active_provider == "deepseek"
-                    else self.ollama_model
-                )
+            for delta in provider.stream(prompt):
+                buffer    += delta
+                full_text += delta
 
-                if client is None:
-                    logger.error(f"Клієнт {self.active_provider} недоступний.")
-                    return None
+                parts = self.SENTENCE_END.split(buffer)
+                if len(parts) > 1:
+                    for sentence in parts[:-1]:
+                        sentence = sentence.strip()
+                        if sentence and not self._looks_like_code(sentence):
+                            self.audio.speak(sentence)
+                    buffer = parts[-1]
 
-                stream = client.chat.completions.create(
-                    model=model,
-                    messages=[{"role": "user", "content": prompt}],
-                    stream=True  # ✅ Стримінг
-                )
+            if buffer.strip() and not self._looks_like_code(buffer.strip()):
+                self.audio.speak(buffer.strip())
 
-                for chunk in stream:
-                    delta = chunk.choices[0].delta.content or ""
-                    buffer    += delta
-                    full_text += delta
-
-                    # ✅ Щойно є повне речення — одразу озвучуємо
-                    parts = self.SENTENCE_END.split(buffer)
-                    if len(parts) > 1:
-                        for sentence in parts[:-1]:
-                            sentence = sentence.strip()
-                            if sentence and not self._looks_like_code(sentence):
-                                self.audio.speak(sentence)
-                        buffer = parts[-1]  # залишок — неповне речення
-
-                # ✅ Озвучуємо залишок після завершення стриму
-                if buffer.strip() and not self._looks_like_code(buffer.strip()):
-                    self.audio.speak(buffer.strip())
-
-                if self._looks_like_code(full_text):
-                    self.audio.speak(self._CODE_SPOKEN_MSG)
-
-            else:
-                # Gemini — стандартний виклик, але озвучення по реченнях
-                full_text = self._call_provider(prompt)
-                if full_text:
-                    sentences = self.SENTENCE_END.split(full_text)
-                    for sentence in sentences:
-                        if sentence.strip() and not self._looks_like_code(sentence.strip()):
-                            self.audio.speak(sentence.strip())
-                    if self._looks_like_code(full_text):
-                        self.audio.speak(self._CODE_SPOKEN_MSG)
+            if self._looks_like_code(full_text):
+                self.audio.speak(self._CODE_SPOKEN_MSG)
 
             return full_text.strip() if full_text else None
 
@@ -268,7 +216,6 @@ class LLMHandler:
     def process_chat(self, user_text: str) -> None:
         self.short_term_memory.append(f"User: {user_text}")
 
-        # ✅ brain.search() і get_recent_facts() паралельно — економить 300-500мс
         print(f"{Fore.YELLOW}🔍 Пошук контексту (паралельно)...")
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
             future_context = pool.submit(self.brain.search, user_text, 10)
@@ -294,13 +241,11 @@ class LLMHandler:
             f"ВІДПОВІДЬ (без markdown, зручна для озвучення):"
         )
 
-        # ✅ Стримінг + озвучення по реченнях
         full_answer = self._stream_and_speak(full_prompt)
 
         if full_answer:
             self.short_term_memory.append(f"AI: {full_answer}")
             self._set_cached(full_prompt, full_answer)
-            # ✅ Збереження у RAG у фоні — не блокує наступну команду
             threading.Thread(
                 target=self._save_to_memory,
                 args=(user_text, full_answer),

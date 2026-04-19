@@ -464,18 +464,7 @@ class JarvisHUD(ctk.CTk):
                 text=f"AI: {self.jarvis.llm.active_provider.upper()}",
                 text_color=self.accent_color
             ))
-            while self.jarvis.is_running:
-                try:
-                    cmd = self.jarvis.input_queue.get(timeout=1)
-                    if cmd:
-                        threading.Thread(
-                            target=self.jarvis._process_command,
-                            args=(cmd,),
-                            daemon=True,
-                            name="BrainWorker"
-                        ).start()
-                except queue.Empty:
-                    pass
+            self.jarvis.start_processing_loop()
 
     # -----------------------------------------------------------------------
     # ВВЕДЕННЯ КОМАНДИ
