@@ -12,8 +12,8 @@ def execute(cmd, jarvis):
         search_term = search_term.replace(t, "")
     search_term = search_term.strip().lower()
 
-    code_dir = os.path.join(os.getenv("JARVIS_DRIVE", "H:\\Jarvis_Sorted"), "Code")
-    
+    code_dir = os.getenv("JARVIS_DRIVE", "H:\\Jarvis_Sorted")
+
     if not os.path.exists(code_dir):
         return "Папка зі скриптами ще не створена."
 

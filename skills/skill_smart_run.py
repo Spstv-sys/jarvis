@@ -22,7 +22,7 @@ def execute(cmd, jarvis):
         return "Для чого саме мені потрібно використати скрипт?"
 
     # 1. Знаходимо всі доступні скрипти
-    code_dir = os.path.join(os.getenv("JARVIS_DRIVE", "H:\\Jarvis_Sorted"), "Code")
+    code_dir = os.getenv("JARVIS_DRIVE", "H:\\Jarvis_Sorted")
     if not os.path.exists(code_dir):
         return "Папка зі скриптами ще не створена."
 
