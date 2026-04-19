@@ -33,16 +33,13 @@ class AudioManager:
         self.current_volume = 0
         self.whisper_model  = None
         self._speak_lock    = threading.Lock()
-        # ✅ Калібруємо шум тільки один раз
         self._noise_calibrated = False
+        self._oww_ready     = threading.Event()  # сигнал готовності wake word
 
         print(f"{Fore.CYAN}⚙️ Ініціалізація нейронного слуху...")
         try:
             pygame.mixer.init()
             self.recognizer = sr.Recognizer()
-
-            openwakeword.utils.download_models()
-            self.owwModel        = Model(wakeword_models=["hey_jarvis"], inference_framework="onnx")
             self.audio_interface = pyaudio.PyAudio()
 
             if self.audio_interface.get_device_count() == 0:
@@ -56,9 +53,29 @@ class AudioManager:
                 print(f"{Fore.RED}⚠️ Запуск Whisper на CPU...")
                 self.whisper_model = self._load_whisper(force_cpu=True)
 
-    # -------------------------------------------------------------------------
-    # ХЕЛПЕРИ
-    # -------------------------------------------------------------------------
+        # FIX #1: завантаження моделей wake word у фоновому треді — не блокує старт
+        threading.Thread(target=self._load_oww_model, daemon=True, name="OWWLoader").start()
+
+    def _load_oww_model(self):
+        """Завантаження openwakeword у фоні — не блокує старт"""
+        try:
+            model_path = os.path.join(
+                os.path.expanduser("~"),
+                ".cache", "openwakeword", "hey_jarvis.onnx"
+            )
+            if not os.path.exists(model_path):
+                logger.info("OWW: завантаження моделей з мережі...")
+                openwakeword.utils.download_models()
+            else:
+                logger.info("OWW: моделі вже є у кеші, завантаження пропущено.")
+            self.owwModel = Model(wakeword_models=["hey_jarvis"], inference_framework="onnx")
+            logger.info("OWW: модель готова.")
+        except Exception as e:
+            logger.error(f"OWW: помилка завантаження моделі: {e}")
+            self.owwModel = None
+        finally:
+            self._oww_ready.set()
+
     @staticmethod
     def _load_whisper(force_cpu: bool = False):
         from faster_whisper import WhisperModel
@@ -79,7 +96,7 @@ class AudioManager:
 
     @staticmethod
     def _run_async(coro):
-        """✅ Безпечний запуск async з будь-якого потоку"""
+        """Безпечний запуск async з будь-якого потоку"""
         try:
             loop = asyncio.get_running_loop()
             future = asyncio.run_coroutine_threadsafe(coro, loop)
@@ -87,9 +104,6 @@ class AudioManager:
         except RuntimeError:
             return asyncio.run(coro)
 
-    # -------------------------------------------------------------------------
-    # ЗВУКОВІ ЕФЕКТИ
-    # -------------------------------------------------------------------------
     def play_fx(self, sound_type: str) -> None:
         path = self._SOUND_MAP.get(sound_type)
         if not path or not os.path.exists(path):
@@ -101,9 +115,6 @@ class AudioManager:
         except Exception as e:
             logger.error(f"Помилка програвання FX '{sound_type}': {e}")
 
-    # -------------------------------------------------------------------------
-    # TTS
-    # -------------------------------------------------------------------------
     def speak(self, text: str) -> None:
         clean_text = re.sub(r'[*#_]', '', text).strip()
         if not clean_text:
@@ -112,13 +123,12 @@ class AudioManager:
         print(f"{Fore.GREEN}🤖 [ДЖАРВІС]: {clean_text}")
         self.stop_event.clear()
 
-        tmp      = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+        tmp      = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False)
         tmp_path = tmp.name
         tmp.close()
 
         async def generate_audio():
             communicate  = edge_tts.Communicate(clean_text, "uk-UA-OstapNeural", rate="+30%")
-            # ✅ Стримінг — збираємо чанки одразу без зайвих проміжних записів
             audio_buffer = bytearray()
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
@@ -155,10 +165,15 @@ class AudioManager:
                 except OSError:
                     pass
 
-    # -------------------------------------------------------------------------
-    # WAKE WORD
-    # -------------------------------------------------------------------------
     def listen_for_wake_word(self) -> bool:
+        # Чекаємо поки модель завантажиться у фоні (максимум 60 сек)
+        if not self._oww_ready.wait(timeout=60):
+            logger.error("OWW: модель не завантажилась за 60 секунд.")
+            return False
+        if self.owwModel is None:
+            logger.error("OWW: модель недоступна.")
+            return False
+
         print(f"\n{Fore.CYAN}🎧 Очікування команди...")
         self.current_volume = 0
         stream = None
@@ -206,21 +221,17 @@ class AudioManager:
                 except Exception:
                     pass
 
-    # -------------------------------------------------------------------------
-    # КОМАНДА
-    # -------------------------------------------------------------------------
     def listen_for_command(self, dictation_mode: bool = False) -> str | None:
         if self.whisper_model is None:
             logger.error("Whisper не завантажено.")
             return None
 
-        tmp      = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        tmp      = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
         tmp_path = tmp.name
         tmp.close()
 
         try:
             with sr.Microphone() as source:
-                # ✅ Калібруємо шум тільки один раз — економить 1 сек кожної команди
                 if not self._noise_calibrated:
                     self.recognizer.adjust_for_ambient_noise(source, duration=1.0)
                     self._noise_calibrated = True
@@ -238,7 +249,7 @@ class AudioManager:
             segments, _ = self.whisper_model.transcribe(
                 tmp_path,
                 beam_size=1,
-                best_of=1,         # ✅ не перебирає варіанти
+                best_of=1,
                 language="uk",
                 vad_filter=True,
                 vad_parameters=dict(min_silence_duration_ms=400),
@@ -264,9 +275,6 @@ class AudioManager:
             except OSError:
                 pass
 
-    # -------------------------------------------------------------------------
-    # CLEANUP
-    # -------------------------------------------------------------------------
     def close(self) -> None:
         try:
             if hasattr(self, 'audio_interface') and self.audio_interface:
