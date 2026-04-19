@@ -27,7 +27,6 @@ def execute(cmd, jarvis):
 
     jarvis.audio.speak("Аналізую задачу та формую структуру файлу.")
 
-    # Просимо ШІ видати назву і код
     prompt = (
         f"Ти Senior Python Developer. Завдання: '{request}'.\n"
         f"Поверни відповідь у форматі:\n"
@@ -40,7 +39,6 @@ def execute(cmd, jarvis):
     response = jarvis.llm.generate_response(prompt, is_system_call=True)
     if not response: return "Помилка зв'язку з ШІ."
 
-    # Парсимо назву та код
     try:
         filename_match = re.search(r"FILENAME:\s*(.*\.py)", response)
         filename = filename_match.group(1).strip() if filename_match else f"script_{int(time.time())}.py"
@@ -50,13 +48,12 @@ def execute(cmd, jarvis):
     except Exception:
         return "Не вдалося розібрати структуру коду від ШІ."
 
-    # Збереження на диск H:
+    # Збереження — без підпапки Code
     target_dir = os.getenv("JARVIS_DRIVE", "H:\\Jarvis_Sorted")
-    code_dir = os.path.join(target_dir, "Code")
-    os.makedirs(code_dir, exist_ok=True)
-    filepath = os.path.join(code_dir, filename)
+    os.makedirs(target_dir, exist_ok=True)
+    filepath = os.path.join(target_dir, filename)
 
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(clean_code)
     
-    return f"Скрипт '{filename}' успішно створено та збережено."
+    return f"Скрипт '{filename}' успі��но створено та збережено у {target_dir}."
