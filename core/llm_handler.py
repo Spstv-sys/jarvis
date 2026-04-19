@@ -18,6 +18,8 @@ class LLMHandler:
     MAX_SHORT_TERM = 20
     CACHE_MAX      = 30
     SENTENCE_END   = re.compile(r'(?<=[.!?])\s+')
+    _CODE_MARKERS  = ('def ', 'class ', 'import ', 'from ', 'return ', '#!/', 'if __name__')
+    _CODE_SPOKEN_MSG = "Відповідь містить програмний код. Результат збережено або відображено на екрані."
 
     def __init__(self, db, brain, audio):
         self.db    = db
@@ -185,6 +187,12 @@ class LLMHandler:
     # -------------------------------------------------------------------------
     # СТРИМІНГ + TTS ПО РЕЧЕННЯХ
     # -------------------------------------------------------------------------
+    def _looks_like_code(self, text: str) -> bool:
+        """Повертає True якщо текст схожий на код (містить характерні патерни)."""
+        lines = text.splitlines()
+        code_lines = sum(1 for line in lines if any(m in line for m in self._CODE_MARKERS))
+        return code_lines >= 2
+
     def _stream_and_speak(self, prompt: str) -> str | None:
         """
         ✅ Стримінг токенів → розбивка на речення → TTS одразу.
@@ -226,13 +234,16 @@ class LLMHandler:
                     if len(parts) > 1:
                         for sentence in parts[:-1]:
                             sentence = sentence.strip()
-                            if sentence:
+                            if sentence and not self._looks_like_code(sentence):
                                 self.audio.speak(sentence)
                         buffer = parts[-1]  # залишок — неповне речення
 
                 # ✅ Озвучуємо залишок після завершення стриму
-                if buffer.strip():
+                if buffer.strip() and not self._looks_like_code(buffer.strip()):
                     self.audio.speak(buffer.strip())
+
+                if self._looks_like_code(full_text):
+                    self.audio.speak(self._CODE_SPOKEN_MSG)
 
             else:
                 # Gemini — стандартний виклик, але озвучення по реченнях
@@ -240,8 +251,10 @@ class LLMHandler:
                 if full_text:
                     sentences = self.SENTENCE_END.split(full_text)
                     for sentence in sentences:
-                        if sentence.strip():
+                        if sentence.strip() and not self._looks_like_code(sentence.strip()):
                             self.audio.speak(sentence.strip())
+                    if self._looks_like_code(full_text):
+                        self.audio.speak(self._CODE_SPOKEN_MSG)
 
             return full_text.strip() if full_text else None
 

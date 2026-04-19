@@ -2,7 +2,19 @@ import os
 import time
 import re
 
-TRIGGERS = ["напиши код", "напиши скрипт", "запрограмуй"]
+TRIGGERS = [
+    "напиши код",
+    "напиши скрипт",
+    "запрограмуй",
+    "створи скрипт",
+    "створи код",
+    "зроби скрипт",
+    "зроби програму",
+    "напиши програму",
+    "генеруй код",
+    "напиши функцію",
+    "створи функцію",
+]
 
 def execute(cmd, jarvis):
     request = cmd
@@ -47,4 +59,4 @@ def execute(cmd, jarvis):
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(clean_code)
     
-    return f"Скрипт створено та названо: {filename}."
+    return f"Скрипт '{filename}' успішно створено та збережено."
