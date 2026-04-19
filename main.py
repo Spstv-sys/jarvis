@@ -369,10 +369,12 @@ class JarvisUltimate:
             f'Ти Senior Python Developer. Напиши плагін для голосового асистента Джарвіс.\n'
             f'Користувач просить: "{request}".\n'
             f'Правила:\n'
-            f'1. ПОВЕРНИ ТІЛЬКИ ЧИСТИЙ PYTHON КОД.\n'
-            f'2. Код ПОВИНЕН мати список `TRIGGERS`.\n'
+            f'1. ПОВЕРНИ ТІЛЬКИ ЧИСТИЙ PYTHON КОД — без пояснень, без markdown, без коментарів.\n'
+            f'2. Код ПОВИНЕН мати список `TRIGGERS` — список українських фраз-тригерів.\n'
             f'3. Код ПОВИНЕН мати функцію `def execute(cmd, jarvis):`, '
-            f'яка повертає РЯДОК (текст для озвучки).'
+            f'яка повертає РЯДОК (текст для озвучки).\n'
+            f'4. НЕ додавай ```python або ``` — тільки голий код.\n'
+            f'5. НЕ пиши жодних пояснень до або після коду.'
         )
         try:
             clean_code = self.llm.generate_response(prompt, is_system_call=True)
@@ -385,7 +387,7 @@ class JarvisUltimate:
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write(clean_code)
             self.load_skills()
-            self.audio.speak("Нову навичку інтегровано.")
+            self.audio.speak(f"Нову навичку збережено у файл {filename} та інтегровано до системи.")
         except Exception as e:
             logger.error(f"Помилка створення навички: {e}")
             self.audio.speak("Виникла помилка під час програмування навички.")
