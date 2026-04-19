@@ -22,23 +22,35 @@ TRIGGERS = [
 def _normalize(s):
     return s.replace("_", "").replace("-", "").replace(" ", "").lower()
 
-def _find_script(search_term, scripts):
-    scripts_map = {_normalize(f[:-3]): f for f in scripts}
-    result = process.extractOne(_normalize(search_term), list(scripts_map.keys()))
+def _collect_scripts(base_dir):
+    """Збираємо скрипти з кореневої папки І з підпапки Code."""
+    scripts = {}  # filename -> full_path
+    for folder in [base_dir, os.path.join(base_dir, "Code")]:
+        if os.path.exists(folder):
+            for f in os.listdir(folder):
+                if f.endswith(".py"):
+                    scripts[f] = os.path.join(folder, f)
+    return scripts
+
+def _find_script(search_term, scripts_map):
+    """Fuzzy пошук скрипту за назвою."""
+    normalized = {_normalize(k[:-3]): k for k in scripts_map}
+    result = process.extractOne(_normalize(search_term), list(normalized.keys()))
     if result and result[1] >= 55:
-        return scripts_map[result[0]]
+        return normalized[result[0]]
     return None
 
 def execute(cmd, jarvis):
-    code_dir = os.getenv("JARVIS_DRIVE", "H:\\Jarvis_Sorted")
+    base_dir = os.getenv("JARVIS_DRIVE", "H:\\Jarvis_Sorted")
 
-    if not os.path.exists(code_dir):
-        return f"Папка {code_dir} не знайдена. Перевірте підключення диска."
+    if not os.path.exists(base_dir):
+        return f"Папка {base_dir} не знайдена. Перевірте підключення диска."
 
-    scripts = [f for f in os.listdir(code_dir) if f.endswith(".py")]
+    # Збираємо скрипти з кореня і з \Code
+    scripts_map = _collect_scripts(base_dir)
 
-    if not scripts:
-        return "У мене поки що немає жодного збереженого скрипту."
+    if not scripts_map:
+        return f"У мене поки що немає жодного збереженого скрипту. (шукав у {base_dir} та {base_dir}\\Code)"
 
     cmd_lower = cmd.lower()
     is_describe = any(t in cmd_lower for t in [
@@ -55,11 +67,11 @@ def execute(cmd, jarvis):
         if not search_term:
             return "Назву якого скрипту пояснити?"
 
-        filename = _find_script(search_term, scripts)
+        filename = _find_script(search_term, scripts_map)
         if not filename:
             return f"Скрипт схожий на '{search_term}' не знайдено. Скажіть 'які скрипти є' щоб побачити список."
 
-        filepath = os.path.join(code_dir, filename)
+        filepath = scripts_map[filename]
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 source = f.read()
@@ -83,11 +95,11 @@ def execute(cmd, jarvis):
     else:
         jarvis.audio.speak("Ось мої доступні скрипти.")
 
-        lines = [f"Скрипти у {code_dir} ({len(scripts)} шт.):", "-" * 40]
-        for i, name in enumerate(sorted(scripts), 1):
-            filepath = os.path.join(code_dir, name)
-            size_kb = os.path.getsize(filepath) / 1024
-            lines.append(f"{i:2}. {name:<35} ({size_kb:.1f} KB)")
+        lines = [f"Скрипти ({len(scripts_map)} шт.):", "-" * 40]
+        for i, (name, path) in enumerate(sorted(scripts_map.items()), 1):
+            folder_label = "\\Code" if "Code" in path else "     "
+            size_kb = os.path.getsize(path) / 1024
+            lines.append(f"{i:2}. [{folder_label}] {name:<30} ({size_kb:.1f} KB)")
         lines.append("-" * 40)
         lines.append("Скажіть 'що робить скрипт [назва]' для детального опису.")
 
