@@ -75,7 +75,7 @@ class DownloadHandler(FileSystemEventHandler):
         file_path    = event.src_path
         filename     = os.path.basename(file_path)
         file_ext     = os.path.splitext(filename)[1].lower()
-        target_drive = os.getenv("JARVIS_DRIVE", "H:\Jarvis_Sorted")
+        target_drive = os.getenv("JARVIS_DRIVE", r"H:\Jarvis_Sorted")
 
         for folder, extensions in self.EXT_MAP.items():
             if file_ext in extensions:
@@ -491,7 +491,7 @@ class JarvisUltimate:
 
         search_roots = [
             os.path.expanduser("~"),
-            os.getenv("JARVIS_DRIVE", "H:\Jarvis_Sorted"),
+            os.getenv("JARVIS_DRIVE", r"H:\Jarvis_Sorted"),
         ]
 
         self.audio.speak(f"Шукаю файл {search_term}...")
@@ -552,7 +552,7 @@ class JarvisUltimate:
             self.audio.speak("Будь ласка, скажіть точну назву файлу з розширенням.")
             return "CONTINUE"
         filename    = match.group(1)
-        search_dirs = [os.getcwd(), os.path.join(os.getenv("JARVIS_DRIVE", "H:\Jarvis_Sorted"), "Code")]
+        search_dirs = [os.getcwd(), os.path.join(os.getenv("JARVIS_DRIVE", r"H:\Jarvis_Sorted"), "Code")]
         file_path = next((os.path.join(d, filename) for d in search_dirs if os.path.exists(os.path.join(d, filename))), None)
         if not file_path:
             self.audio.speak(f"Не можу знайти файл {filename}.")
