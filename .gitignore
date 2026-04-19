@@ -30,3 +30,9 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+jarvis_vector_db/
