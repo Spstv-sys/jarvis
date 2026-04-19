@@ -5,6 +5,7 @@ from urllib3.util.retry import Retry
 from bs4 import BeautifulSoup
 import logging
 import re
+import certifi
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 class JarvisScraper:
     def __init__(self):
         self.session = requests.Session()
+        self.session.verify = certifi.where()
         self.session.headers.update({
             'User-Agent': (
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
@@ -81,7 +83,7 @@ class JarvisScraper:
                 response = self.session.get(
                     url,
                     timeout=10,
-                    verify=False,
+                    #verify=False,
                     allow_redirects=True
                 )
                 response.raise_for_status()
