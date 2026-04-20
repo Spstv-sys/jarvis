@@ -3,6 +3,7 @@ import sys
 import time
 import asyncio
 import logging
+import logging.handlers
 import threading
 import queue
 import psutil
@@ -22,14 +23,19 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ---------------------------------------------------------------------------
-# ЛОГУВАННЯ
+# ЛОГУВАННЯ з ротацією
 # ---------------------------------------------------------------------------
-logging.basicConfig(
-    filename='jarvis_server.log',
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - [%(funcName)s] - %(message)s',
-    encoding='utf-8'
+logging.basicConfig(level=logging.INFO)   # set root level first
+_log_handler = logging.handlers.RotatingFileHandler(
+    'jarvis_server.log',
+    maxBytes=5 * 1024 * 1024,  # 5 MB
+    backupCount=3,
+    encoding='utf-8',
 )
+_log_handler.setFormatter(
+    logging.Formatter('%(asctime)s - %(levelname)s - [%(funcName)s] - %(message)s')
+)
+logging.getLogger().handlers = [_log_handler]   # replace with rotating handler
 logger = logging.getLogger(__name__)
 
 jarvis: JarvisUltimate | None = None
@@ -45,9 +51,21 @@ _rate_lock = threading.Lock()
 
 
 def _check_rate_limit(client_ip: str) -> bool:
-    """Return True if the request is within the rate limit, False otherwise."""
+    """Return True if the request is within the rate limit, False otherwise.
+
+    Also prunes expired entries for *all* tracked IPs to prevent unbounded
+    memory growth when many unique addresses hit the server over time.
+    """
     now = time.monotonic()
     with _rate_lock:
+        # Prune expired entries for all IPs to prevent memory leak
+        stale_ips = [
+            ip for ip, ts_list in _rate_counters.items()
+            if not any(now - t < _RATE_WINDOW for t in ts_list)
+        ]
+        for ip in stale_ips:
+            del _rate_counters[ip]
+
         recent = [t for t in _rate_counters[client_ip] if now - t < _RATE_WINDOW]
         if len(recent) >= _RATE_LIMIT:
             _rate_counters[client_ip] = recent
@@ -221,7 +239,18 @@ async def get_status():
 # WebSocket
 # ---------------------------------------------------------------------------
 @app.websocket("/ws")
-async def websocket_endpoint(ws: WebSocket):
+async def websocket_endpoint(ws: WebSocket, token: str = ""):
+    """Accept WebSocket connections.
+
+    When ``JARVIS_API_KEY`` is set, the client must pass a matching
+    ``?token=<key>`` query parameter.  This is consistent with the
+    authentication model used on POST /command.
+    """
+    if _JARVIS_API_KEY and token != _JARVIS_API_KEY:
+        logger.warning(f"WebSocket: відхилено з'єднання від {ws.client} — невірний токен")
+        await ws.close(code=1008)  # 1008 = Policy Violation (RFC 6455)
+        return
+
     await manager.connect(ws)
     try:
         while True:

@@ -5,6 +5,7 @@ import re
 import threading
 import queue
 import logging
+import logging.handlers
 import shutil
 from datetime import datetime
 
@@ -37,12 +38,17 @@ init(autoreset=True)
 load_dotenv()
 
 
-logging.basicConfig(
-    filename='jarvis_system.log',
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - [%(funcName)s] - %(message)s',
-    encoding='utf-8'
+logging.basicConfig(level=logging.INFO)   # set root level first
+_log_handler = logging.handlers.RotatingFileHandler(
+    'jarvis_system.log',
+    maxBytes=5 * 1024 * 1024,  # 5 MB
+    backupCount=3,
+    encoding='utf-8',
 )
+_log_handler.setFormatter(
+    logging.Formatter('%(asctime)s - %(levelname)s - [%(funcName)s] - %(message)s')
+)
+logging.getLogger().handlers = [_log_handler]   # replace with rotating handler
 logger = logging.getLogger(__name__)
 
 

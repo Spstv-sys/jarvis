@@ -1,8 +1,12 @@
 # --- Бази даних та векторна пам'ять ---
 chromadb
+langchain-community
+langchain-chroma
+langchain-huggingface
+langchain-text-splitters
 
 # --- ШІ Провайдери ---
-google-generativeai
+google-genai
 openai
 ollama
 
@@ -28,12 +32,20 @@ Pillow
 
 # --- Робота з мережею та парсинг ---
 requests
+beautifulsoup4
 duckduckgo-search
 python-dotenv
 
 # --- Допоміжні утиліти ---
 colorama
 rapidfuzz
+
+# --- Сервер ---
+fastapi
+uvicorn[standard]
+
+# --- Desktop UI ---
+customtkinter
 
 # --- Тестування ---
 pytest
