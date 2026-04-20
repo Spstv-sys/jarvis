@@ -201,8 +201,8 @@ class CommandHandlers:
     def cmd_scrape_weather(self, cmd: str) -> str:
         logger.info(f"cmd_scrape_weather: {cmd!r}")
         self.audio.speak("Збираю повне метеозведення...")
-        sinoptik = self.scraper.get_sinoptik_weather("суми")
-        wttr     = self.scraper.get_weather_from_wttr("Sumy")
+        sinoptik = self.scraper.get_sinoptik_weather(config.DEFAULT_CITY)
+        wttr     = self.scraper.get_weather_from_wttr(config.DEFAULT_CITY_EN)
         if "недоступна" in sinoptik and "недоступна" in wttr:
             self.audio.speak("Всі метеосервери наразі недоступні. Спробуйте пізніше.")
             return "CONTINUE"
@@ -359,7 +359,7 @@ class CommandHandlers:
 
         search_roots = [
             os.path.expanduser("~"),
-            os.getenv("JARVIS_DRIVE", r"H:\Jarvis_Sorted"),
+            config.SORTING_DRIVE,
         ]
 
         self.audio.speak(f"Шукаю файл {search_term}...")
@@ -405,7 +405,7 @@ class CommandHandlers:
                 return "CONTINUE"
             img   = PILImage.open(shot_path)
             query = (
-                re.sub(r'що на екрані|проаналізуй монітор|що ти бачиш', '', cmd, flags=re.IGNORECASE).strip()
+                strip_triggers(cmd, config.TRIGGERS["vision"])
                 or "Що на екрані? Відповідай коротко."
             )
             res = self.llm.gemini_client.models.generate_content(

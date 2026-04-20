@@ -56,17 +56,20 @@ class DownloadHandler(FileSystemEventHandler):
         'Programs':  ['.exe', '.msi'],
     }
 
+    def __init__(self):
+        super().__init__()
+        self.target_drive = config.SORTING_DRIVE
+
     def on_created(self, event):
         if event.is_directory:
             return
-        file_path    = event.src_path
-        filename     = os.path.basename(file_path)
-        file_ext     = os.path.splitext(filename)[1].lower()
-        target_drive = os.getenv("JARVIS_DRIVE", r"H:\Jarvis_Sorted")
+        file_path = event.src_path
+        filename  = os.path.basename(file_path)
+        file_ext  = os.path.splitext(filename)[1].lower()
 
         for folder, extensions in self.EXT_MAP.items():
             if file_ext in extensions:
-                dest_dir = os.path.join(target_drive, folder)
+                dest_dir = os.path.join(self.target_drive, folder)
                 os.makedirs(dest_dir, exist_ok=True)
                 time.sleep(2)
                 try:
