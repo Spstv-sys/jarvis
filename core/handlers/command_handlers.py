@@ -431,15 +431,21 @@ class CommandHandlers:
         if not match:
             self.audio.speak("Будь ласка, скажіть точну назву файлу з розширенням.")
             return "CONTINUE"
-        filename    = match.group(1)
+        # Use basename to prevent path traversal (e.g. "../../etc/passwd.py")
+        filename = os.path.basename(match.group(1))
+        if not filename:
+            self.audio.speak("Назва файлу некоректна.")
+            return "CONTINUE"
         search_dirs = [
             os.getcwd(),
             os.path.join(os.getenv("JARVIS_DRIVE", r"H:\Jarvis_Sorted"), "Code"),
         ]
-        file_path = next(
-            (os.path.join(d, filename) for d in search_dirs if os.path.exists(os.path.join(d, filename))),
-            None,
-        )
+        file_path = None
+        for d in search_dirs:
+            candidate = os.path.realpath(os.path.join(d, filename))
+            if candidate.startswith(os.path.realpath(d)) and os.path.exists(candidate):
+                file_path = candidate
+                break
         if not file_path:
             self.audio.speak(f"Не можу знайти файл {filename}.")
             return "CONTINUE"
