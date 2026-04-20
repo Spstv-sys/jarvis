@@ -4,7 +4,7 @@ import logging
 import hashlib
 import threading
 import concurrent.futures
-from collections import deque
+from collections import deque, OrderedDict
 from colorama import Fore
 
 import config
@@ -29,7 +29,8 @@ class LLMHandler:
         self.personality_mode  = "стандартний"
         self.active_provider   = "deepseek"
         self.short_term_memory = deque(maxlen=self.MAX_SHORT_TERM)
-        self._response_cache: dict = {}
+        self._response_cache: OrderedDict[str, str] = OrderedDict()
+        self._cache_lock = threading.Lock()
 
         print(f"{Fore.CYAN}⚙️ Ініціалізація Мовних Моделей (LLM)...")
         self._providers: dict[str, BaseLLMProvider] = {}
@@ -132,18 +133,40 @@ class LLMHandler:
     # -------------------------------------------------------------------------
     def _get_cached(self, prompt: str) -> str | None:
         key = hashlib.md5(prompt.encode()).hexdigest()
-        return self._response_cache.get(key)
+        with self._cache_lock:
+            entry = self._response_cache.get(key)
+            if entry is not None:
+                # Move to end for LRU ordering
+                self._response_cache.move_to_end(key)
+            return entry
 
     def _set_cached(self, prompt: str, response: str) -> None:
         key = hashlib.md5(prompt.encode()).hexdigest()
-        if len(self._response_cache) >= self.CACHE_MAX:
-            oldest = next(iter(self._response_cache))
-            del self._response_cache[oldest]
-        self._response_cache[key] = response
+        with self._cache_lock:
+            if key in self._response_cache:
+                self._response_cache.move_to_end(key)
+                self._response_cache[key] = response
+                return
+            if len(self._response_cache) >= self.CACHE_MAX:
+                self._response_cache.popitem(last=False)
+            self._response_cache[key] = response
 
-    # -------------------------------------------------------------------------
-    # ГЕНЕРАЦІЯ
-    # -------------------------------------------------------------------------
+    def generate_vision(self, image, query: str) -> str | None:
+        """Generate a response using vision capabilities via the Gemini provider.
+
+        Falls back gracefully when Gemini is not configured.
+        """
+        provider = self._providers.get("gemini")
+        if provider is None or not provider.available:
+            logger.warning("generate_vision: Gemini provider unavailable.")
+            return None
+        try:
+            return provider.generate_vision(image, query)
+        except Exception as e:
+            logger.error(f"Vision API error: {e}")
+            return None
+
+
     def generate_response(self, prompt: str, is_system_call: bool = False) -> str | None:
         cached = self._get_cached(prompt)
         if cached:

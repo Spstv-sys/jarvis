@@ -32,14 +32,25 @@ except ImportError:
 
 
 # ---------------------------------------------------------------------------
-# Forbidden patterns for LLM-generated skill code (Problem 7)
+# Forbidden patterns for LLM-generated skill code
 # ---------------------------------------------------------------------------
 _FORBIDDEN_SKILL_PATTERNS = [
     r'\bos\.system\b',
+    r'\bos\.remove\b',
+    r'\bos\.unlink\b',
     r'\bsubprocess\b',
     r'\b__import__\b',
     r'\beval\b',
     r'\bexec\b',
+    r'\bcompile\b',
+    r'\bopen\s*\(.*["\'](?:w|a|x|wb|ab|xb|w\+|a\+|x\+|r\+)',
+    r'\bimportlib\b',
+    r'\bctypes\b',
+    r'\bsocket\b',
+    r'\bglobals\s*\(',
+    r'\blocals\s*\(',
+    r'\b__builtins__\b',
+    r'\bshutil\.rmtree\b',
 ]
 
 
@@ -201,8 +212,8 @@ class CommandHandlers:
     def cmd_scrape_weather(self, cmd: str) -> str:
         logger.info(f"cmd_scrape_weather: {cmd!r}")
         self.audio.speak("Збираю повне метеозведення...")
-        sinoptik = self.scraper.get_sinoptik_weather("суми")
-        wttr     = self.scraper.get_weather_from_wttr("Sumy")
+        sinoptik = self.scraper.get_sinoptik_weather(config.DEFAULT_CITY)
+        wttr     = self.scraper.get_weather_from_wttr(config.DEFAULT_CITY_EN)
         if "недоступна" in sinoptik and "недоступна" in wttr:
             self.audio.speak("Всі метеосервери наразі недоступні. Спробуйте пізніше.")
             return "CONTINUE"
@@ -227,7 +238,7 @@ class CommandHandlers:
     def cmd_weather(self, cmd: str) -> str:
         logger.info(f"cmd_weather: {cmd!r}")
         self.audio.speak("Запитую метеозведення...")
-        report = self.scraper.get_weather_from_wttr("Sumy")
+        report = self.scraper.get_weather_from_wttr(config.DEFAULT_CITY_EN)
         self.audio.speak(report)
         return "CONTINUE"
 
@@ -393,9 +404,6 @@ class CommandHandlers:
         self.audio.speak("Аналізую екран...")
         shot_path = "temp_screen.png"
         try:
-            if not self.llm.gemini_client:
-                self.audio.speak("Vision API недоступне. Активуйте Gemini.")
-                return "CONTINUE"
             if pyautogui is None:
                 self.audio.speak("Бібліотека pyautogui не встановлена.")
                 return "CONTINUE"
@@ -408,10 +416,11 @@ class CommandHandlers:
                 re.sub(r'що на екрані|проаналізуй монітор|що ти бачиш', '', cmd, flags=re.IGNORECASE).strip()
                 or "Що на екрані? Відповідай коротко."
             )
-            res = self.llm.gemini_client.models.generate_content(
-                model='gemini-2.5-flash', contents=[img, query]
-            )
-            self.audio.speak(res.text)
+            result = self.llm.generate_vision(img, query)
+            if result:
+                self.audio.speak(result)
+            else:
+                self.audio.speak("Vision API недоступне. Активуйте Gemini.")
         except Exception as e:
             logger.error(f"Помилка Vision API: {e}")
             self.audio.speak("Не вдалося проаналізувати зображення.")
