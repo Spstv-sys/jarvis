@@ -1,28 +1,6 @@
 version: "3.9"
 
 services:
-  jarvis-api:
-    build: .
-    container_name: jarvis-api
-    ports:
-      - "${API_PORT:-8001}:8001"
-    env_file:
-      - .env
-    environment:
-      - OLLAMA_HOST=http://ollama:11434
-      - CHROMA_HOST=chromadb
-      - CHROMA_PORT=8000
-      - TESSERACT_PATH=/usr/bin/tesseract
-    volumes:
-      - ./knowledge_base:/app/knowledge_base
-      - ./jarvis_vector_db:/app/jarvis_vector_db
-      - ./skills:/app/skills
-      - jarvis_logs:/app/logs
-    depends_on:
-      - chromadb
-      - ollama
-    restart: unless-stopped
-
   chromadb:
     image: chromadb/chroma:latest
     container_name: jarvis-chromadb
@@ -44,4 +22,3 @@ services:
 volumes:
   chroma_data:
   ollama_data:
-  jarvis_logs:
