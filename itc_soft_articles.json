@@ -1,0 +1,352 @@
+[
+  {
+    "title": "YouTube Premium можна не купляти? Microsoft переграла Google у питанні фонового відео",
+    "link": "https://highload.tech/uk/youtube-premium-bilshe-ne-potriben-microsoft-peregrala-google-u-pytanni-fonovogo-video/#new_tab",
+    "description": "Поки Google веде агресивну кампанію з просування платних підписок, розробники Microsoft знайшли спосіб повернути одну з найбажаніших функцій YouTube користувачам свого мобільного браузера.",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "“Цикл смерті”: оновлення Windows 11 не обійшлось без проблем",
+    "link": "https://itc.ua/ua/novini/tsykl-smerti-onovlennya-windows-11-ne-obijshlos-bez-problem/",
+    "description": "Буквально через 5 днів після виходу квітневого оновлення Microsoft Patch Tuesday (KB5083769) користувачі скаржаться на нові проблеми з Windows 11.",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Оновлення Google поламало Gemini: він почав жити минулим",
+    "link": "https://itc.ua/ua/novini/onovlennya-google-polamalo-gemini-vin-pochav-zhyty-mynulym/",
+    "description": "Вчора та сьогодні спостерігається баг у застосунку Gemini: він відповідає за відкат кількох нещодавніх функцій, повертаючи старий інтерфейс на Android. Зокрема, дизайн повернувся від списку до…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "\"Понад 3,3 млн завантажень\": щойно оновився Linux-альтернативний варіант Windows 11",
+    "link": "https://itc.ua/ua/novini/ponad-3-3-mln-zavantazhen-shhojno-onovyvsya-linux-alternatyvnyj-variant-windows-11/",
+    "description": "Zorin OS — операційна система на базі Linux (дистрибутив), розроблена як цілеспрямована альтернатива macOS і Windows, — з’явилася наприкінці минулого року, майже одночасно з непопулярним рішенням…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Більше ніяких зависань: Android 17 жорстко обмежить обсяг пам’яті для програм",
+    "link": "https://highload.tech/uk/bilshe-niyakyh-zavysan-android-17-zhorstko-obmezhyt-obsyag-pam-yati-dlya-program/#new_tab",
+    "description": "Компанія Google випустила четверту та фінальну бету Android 17, яка стала важливою віхою на шляху до стабільного релізу.",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Два пропущених у Microsoft: Recall зламали, а злитий код для захоплення Windows лежав на GitHub 2 тижні",
+    "link": "https://itc.ua/ua/novini/dva-propushhenyh-u-microsoft-recall-zlamaly-a-zlytyj-kod-dlya-zahoplennya-windows-lezhav-na-github-2-tyzhni/",
+    "description": "Дослідник безпеки Александер Хагена оприлюднив інструмент TotalRecall Reloaded, який знайшов бічний вхід до зашифрованої бази даних Windows Recall. Паралельно стало відомо про зеро-дей експлойт BlueHammer, який…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Злив iOS 27: Apple додасть сканування їжі, розумний Safari та інші функції",
+    "link": "https://itc.ua/ua/novini/ios-27-apple-dodast-skanuvannya-yizhi-safari/",
+    "description": "Apple активно готується до випуску нової версії мобільної операційної системи iOS 27. Напередодні конференції WWDC 2026 у коді системи вже знайшли кілька нових функцій, які очікуються в наступному…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Microsoft запропонувала вирішення проблеми з BitLocker після останнього оновлення Windows 11",
+    "link": "https://itc.ua/ua/novini/microsoft-zaproponuvala-vyrishennya-problemy-z-bitlocker-pislya-ostannogo-onovlennya-windows-11/",
+    "description": "Microsoft цього тижня випустила низку оновлень Windows за квітень у рамках “Patch Tuesday”, що викликало нові проблеми в деяких користувачів.",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Зненацька: Google запускає додаток Gemini на пристроях Mac",
+    "link": "https://itc.ua/ua/novini/znenatska-google-zapuskaye-dodatok-gemini-dlya-prystroyiv-mac/",
+    "description": "Gemini тепер має нативний Mac-додаток — перше розширення з Android та iOS. Цей “нативний десктопний досвід” запускається за допомогою комбінації клавіш Option + Space. Також є іконка-іскра Gemini у рядку…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Google Wallet отримав масштабний редизайн",
+    "link": "https://itc.ua/ua/novini/google-wallet-otrymav-masshtabnyj-redyzajn/",
+    "description": "Застосунок Google Wallet отримав масштабне оновлення й зміну дизайну для підвищення зручності користування.",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Малий та швидкий: ветеран Microsoft розповів про секрети розробки оригінального Task Manager",
+    "link": "https://itc.ua/ua/novini/windows-task-manager-history-dave-plummer-efficiency/",
+    "description": "Дейв Пламмер, колишній інженер Microsoft і творець легендарного Диспетчера завдань, поділився спогадами про те, як створювалася одна з найважливіших утиліт Windows. Виявилося, що перша версія…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "\"Дія\" покаже все ваше майно і запропонує сплатити податки: як працює новий сервіс",
+    "link": "https://itc.ua/ua/novini/diya-pokazhe-vse-vashe-majno-zaproponuye-podatky/",
+    "description": "Держава вирішила зібрати інформацію про податки, борги та майно в одному місці. Ідея полягає в тому, щоб громадяни не турбувалися про папери та збір документів, а могли контролювати все це…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Кінець маніпуляціям: Google посилює боротьбу із \"захопленням\" кнопки \"Назад\"",
+    "link": "https://itc.ua/ua/novini/google-chrome-back-button-hijacking-penalty-2/",
+    "description": "Компанія Google офіційно оголосила про впровадження нових механізмів захисту користувачів від дратівливої тактики вебсайтів. Мова йде про так зване “захоплення історії”, коли ресурс не…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Український стартап Obriy AI залучив $500 тис. інвестицій: на що витратить",
+    "link": "https://speka.ua/news/ukrayinskii-startap-zaluciv-500-tis-investicii-na-shho-vitratit-vz1kg4#new_tab",
+    "description": "Українська AI-компанія Obriy AI оголосила про залучення $500 тис. інвестицій від N1 Investment Company і довгострокове стратегічне партнерство між сторонами,",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "YouTube випадково \"спалився\": як отримувати менше реклами без плану Premium",
+    "link": "https://itc.ua/ua/novini/youtube-vypadkovo-spalyvsya-yak-otrymuvaty-menshe-reklamy-bez-planu-premium/",
+    "description": "YouTube показує рекламу агресивніше, ніж будь-коли раніше, і єдиний офіційний спосіб повністю позбутися її — це придбати підписку Premium, вартість якої нещодавно підвищили.  Однак — виявляється —…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Google випускає офіційний додаток для Windows. Ні, не це браузер",
+    "link": "https://highload.tech/uk/google-vypuskaye-ofitsijnyj-dodatok-dlya-windows-ni-ne-tse-brauzer/#new_tab",
+    "description": "Після тривалого тестування, що розпочалося ще у вересні минулого року, компанія Google офіційно випустила свій десктопний додаток для користувачів Windows 10 та 11.",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Play Store перетворюється на TikTok: Google запускає Play Shorts",
+    "link": "https://itc.ua/ua/novini/play-store-peretvoryuyetsya-na-tiktok-google-zapuskaye-play-shorts/",
+    "description": "Google розпочала тестування Play Shorts — вертикальної повноекранної TikTok-подібної відеострічки, вбудованої у вкладку “Додатки” Play Store. Функція поступово з’являється у користувачів у США на…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Невидимий вірус: фейкове оновлення Windows 11 24H2 успішно обходить антивірусний захист",
+    "link": "https://itc.ua/ua/novini/fake-windows-11-24h2-update-malware-antivirus-bypass/",
+    "description": "Дослідники з кібербезпеки виявили нову небезпечну кампанію, що націлена на користувачів Windows 11. Хакери створили фальшиву сторінку підтримки Microsoft, яка пропонує встановити критичне оновлення…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Google прокачала Gemini в Україні: \"Персоналізований інтелект\" аналізує ваші дані",
+    "link": "https://itc.ua/ua/novini/google-prokachala-gemini-v-ukrayini/",
+    "description": "Google привезла в Україну функцію “Персоналізований інтелект” (Personal Intelligence) у застосунку Gemini. Раніше її тестували у США, а згодом розширили доступ. Тепер вона поступово з’являється і в нас.",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Ви не так зрозуміли: Microsoft критикують за відмову позбавлятись Copilot у Windows 11",
+    "link": "https://itc.ua/ua/novini/vy-ne-tak-zrozumily-microsoft-krytykuyut-za-vidmovu-pozbavlyatys-copilot-u-windows-11/",
+    "description": "Microsoft викликала хвилю критики користувачів через приховування функцій Copilot у Windows 11 замість видалення.",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Покращення до наради і після: Microsoft Teams виправить 2 вкрай незручні щоденні проблеми",
+    "link": "https://itc.ua/ua/novini/pokrashhennya-do-narady-i-pislya-microsoft-teams-vypravyt-2-vkraj-nezruchni-shhodenni-problemy/",
+    "description": "Microsoft готує два різних оновлення для Teams, і одне з них вирішує проблему на нарадах, яка знайома майже кожному. Компанія готує тест мікрофона та динаміків перед початком зустрічі, який дозволяє…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Linux 7.0 вже тут: покращення зберігання даних, підвищена продуктивність та підтримка нового обладнання",
+    "link": "https://itc.ua/ua/novini/linux-7-0-vzhe-tut-pokrashhennya-zberigannya-danyh-pidvyshhena-produktyvnist-ta-pidtrymka-novogo-obladnannya/",
+    "description": "Відбувся реліз ядра Linux версії 7.0. Оновлення включає покращену файлову систему, оптимізацію продуктивності та підтримку нового обладнання.",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Microsoft пообіцяла 18 змін у Windows 11 протягом 2026 року",
+    "link": "https://itc.ua/ua/novini/microsoft-poobitsyala-18-zmin-u-windows-11-protyagom-2026-roku-yaki-same/",
+    "description": "Президент підрозділу Windows + Devices компанії Microsoft Паван Давулурі підтвердив масштабний план покращень Windows 11, який охоплює 18 конкретних змін. Перелік склало видання Windows Latest на основі офіційних…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "YouTube Premium дорожчає: нові ціни до $27 на місяць",
+    "link": "https://itc.ua/ua/novini/youtube-premium-dorozhchaye-novi-tsiny-do-27/",
+    "description": "Слідом за Spotify та Netflix сервіс YouTube також вирішив підняти ціни на підписку Premium. Цього разу зміни торкнуться всіх тарифів, і для деяких користувачів подорожчання складе до $4 на місяць.",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Au revoir, Microsoft: Франція масово переводить держустанови на Linux заради незалежності від США",
+    "link": "https://itc.ua/ua/novini/france-switches-windows-to-linux-digital-sovereignty/",
+    "description": "Французький уряд офіційно ініціював амбітну програму “Цифровий суверенітет”, яка передбачає повну відмову державних органів від операційної системи Windows на користь рішень із…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Застосунки для моніторингу ПК CPU-Z та HWMonitor зламали й заразили вірусами",
+    "link": "https://itc.ua/ua/novini/zastosunky-dlya-monitoryngu-pk-cpu-z-ta-hwmonitor-zlamaly-j-zarazyly-virusamy/",
+    "description": "Два популярні застосунки для моніторингу ПК-обладнання CPU-Z та HWMonitor виявились інфікованими шкідливим ПЗ.",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Камера більше не потрібна: YouTube запускає ШІ-аватари для Shorts",
+    "link": "https://itc.ua/ua/novini/youtube-zapuskaye-shi-avatary-dlya-shorts/",
+    "description": "Google почала поступово запускати нову функцію для YouTube — створення ШІ-аватарів, які відтворюють зовнішність і голос користувача у коротких відео Shorts. Інструмент анонсували раніше цього року, а…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Прощавай Copilot: Microsoft прибирає дратівливий ШІ у застосунках  Windows 11",
+    "link": "https://itc.ua/ua/novini/proshhavaj-copilot-microsoft-prybyraye-drativlyvyj-shi-u-zastosunkah-windows-11/",
+    "description": "Microsoft у рамках масштабного виправлення Windows 11 видаляє гарячі клавіші Copilot з застосунків.",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Нумо перевіряти: у Windows 11 більше не має жодних проблем, — заява Microsoft",
+    "link": "https://itc.ua/ua/novini/numo-pereviryaty-u-windows-11-bilshe-ne-maye-zhodnyh-problem-zayava-microsoft/",
+    "description": "В Microsoft заявили про відсутність наявних проблем або помилок у Windows 11.",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Новий експеримент YouTube з рекламою: як остаточно роздратувати глядачів",
+    "link": "https://itc.ua/ua/novini/90-sekund-bezperervnoyi-reklamy-ta-gra-v-hovanky-z-knopkoyu-propuska-os-shho-chekaye-korystuvachiv-youtube-tv/",
+    "description": "Останнім часом YouTube веде активний “рекламний наступ”, пропонуючи глядачам дедалі більше реклами та різними способами караючи тих, хто використовує блокувальники реклами. Проте його…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Spotify тестує ШІ: \"плейлисти за запитом\" вже доступні для користувачів з 7 країн",
+    "link": "https://itc.ua/ua/novini/spotify-testuye-shi-plejlysty-za-zapytom-vzhe-dostupni-dlya-korystuvachiv-z-7-krayin/",
+    "description": "Клієнти Spotify часто знають недостатньо, щоб зрозуміти, які подкасти варто слухати, тому витрачають занадто багато часу на пошук замість прослуховування. Тепер з цим стане легше: функція Spotify…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Дуров додав AI в Telegram: пишіть, як вікінги",
+    "link": "https://speka.ua/news/telegram-gotuje-vprovadzennya-si-yak-zminitsya-vikoristannya-mesendzeru-v5x4jn#new_tab",
+    "description": "Telegram зробив масштабне оновлення з елементами штучного інтелекту. Приватний ШІ-редактор має спросити написання повідомлень, пообіцяв засновник Telegram Павло Дуров.",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Google Wallet ламається на Samsung Galaxy: що робити користувачам",
+    "link": "https://itc.ua/ua/novini/u-google-wallet-z-yavyvsya-dyvnyj-bag-yakyj-ne-daye-vidkryty-dodatok-shho-robyty-instruktsiyi-vid-google/",
+    "description": "Користувачі Google Wallet стикаються з проблемою в додатку. Кілька повідомлень свідчать, що баг змушує додаток шалено мигати, роблячи його непридатним до використання. Google каже, що виявила…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Google готує секретну ШІ-утиліту для миттєвої обробки думок",
+    "link": "https://itc.ua/ua/novini/google-gotuye-sekretnu-shi-utylitu-dlya-myttyevoyi-obrobky-dumok/",
+    "description": "Технологічний гігант Google працює над новим амбітним проєктом у сфері персональної продуктивності, який має вийти далеко за межі звичного запису голосу. За даними витоків, компанія розробляє…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Google Pixel не вмикається після оновлення: що сталося і як виправити",
+    "link": "https://itc.ua/ua/novini/google-pixel-ne-vmykayetsya-pislya-onovlennya/",
+    "description": "Березневе оновлення для смартфонів Google Pixel принесло користувачам не лише нові функції, а й критичні проблеми. Після встановлення апдейту частина пристроїв взагалі не може завантажити ОС…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Microsoft позбувається одного з головних інструментів відновлення Windows",
+    "link": "https://itc.ua/ua/novini/microsoft-pozbuvayetsya-odnogo-z-golovnyh-instrumentiv-vidnovlennya-windows/",
+    "description": "Microsoft продовжує курс на радикальне спрощення своєї операційної системи, відправляючи на спокій ще один колись незамінний сервіс. Мова йде про Microsoft Support and Recovery Assistant (SaRA) — утиліту, яка роками…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "BROCARD: як б'юті-ритейлер розвиває мобільний продукт — огляд застосунку та Великодньої гейміфікації",
+    "link": "https://itc.ua/ua/articles/brocard-yak-b-yuti-rytejler-rozvyvaye-mobilnyj-produkt-oglyad-zastosunku-ta-velykodnoyi-gejmifikatsiyi/",
+    "description": "Б’юті-ритейл давно перестав бути виключно офлайн-історією. Великі мережі в усьому світі інвестують у власні цифрові канали — мобільні застосунки, програми лояльності, персоналізовані…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "У функції Now Playing на Google Pixel з'явилося оновлення, але його майже ніхто не бачить",
+    "link": "https://itc.ua/ua/novini/u-funktsiyi-now-playing-na-google-pixel-z-yavylosya-onovlennya-ale-jogo-majzhe-nihto-ne-bachyt/",
+    "description": "Серед усіх функцій, якими користуються власники Google Pixel, Now Playing — одна з тих, що рідко привертає до себе увагу. Минулий місяць виявився важливим для цієї ексклюзивної опції: Google перетворила її…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Квітневе оновлення Windows 11: 8 суттєвих покращень, які не варто пропускати",
+    "link": "https://itc.ua/ua/novini/kvitneve-onovlennya-windows-11-8-suttyevyh-pokrashhen-yaki-ne-varto-propuskaty/",
+    "description": "Microsoft планує почати розгортання квітневого оновлення безпеки 2026 для Windows 11 у вівторок, 14 квітня 2026 року, і у четвертому місяці року компанія робить доступними нові функції, покращення та…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Google Meet інтегрований у CarPlay, але без відео — заради безпеки водіїв",
+    "link": "https://itc.ua/ua/novini/google-meet-integrovanyj-u-carplay-ale-bez-video-zarady-bezpeky-vodiyiv/",
+    "description": "Google Meet тепер доступний у CarPlay — принаймні для власників iPhone. Компанія оголосила про інтеграцію, яка дозволяє брати участь у робочих нарадах під час керування автомобілем в аудіорежимі.",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Windows 11 незабаром стане тактильною",
+    "link": "https://itc.ua/ua/novini/windows-11-nezabarom-stane-taktylnym/",
+    "description": "ПК на Windows ось-ось стануть трохи більш “відчутними” та реагуватимуть не лише візуально Microsoft зараз тестує в Windows 11 новий тип взаємодії, який не просто показує, що відбувається на екрані, —…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Apple вчергове обмежив використання AppStore для росіян",
+    "link": "https://speka.ua/news/apple-vcergove-obmezuje-vikoristannya-appstore-v-rf-vz1rjw#new_tab",
+    "description": "Компанія Apple вчергове посилила санкції проти користувачів своїх гаджетів у росії. З 1 квітня 2026 року росіянам заборонили здійснювати покупки та оновлювати підписки у AppStore.",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Microsoft запускає примусове оновлення до Windows 11 25H2",
+    "link": "https://itc.ua/ua/novini/microsoft-zapuskaye-prymusove-onovlennya-do-windows-11-25h2/",
+    "description": "Починаючи з цього тижня Microsoft примусово оновлюватиме пристрої під керуванням Windows 11 24H2 Home та Pro до Windows 11 25H2.",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Microsoft ліквідує Publisher та провокує шквал гніву серед фанатів",
+    "link": "https://itc.ua/ua/novini/microsoft-likviduye-publisher-ta-provokuye-shkval-gnivu-sered-fanativ/",
+    "description": "Корпорація Microsoft офіційно підтвердила, що життєвий цикл Microsoft Publisher добігає кінця. Підтримка додатка припиниться в жовтні 2026 року, після чого він зникне з усіх підписок Microsoft 365. Це рішення…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "У \"Дія\" з’явиться голосовий ШІ: як це працюватиме",
+    "link": "https://itc.ua/ua/novini/u-diya-z-yavytsya-golosovyj-shi-yak-tse-pratsyuvatyme/",
+    "description": "Минулого року Мінцифри запустило ШІ-бот в сервісі “Дія”, і на цьому у відомстві не збираються зупинятися. Надалі планується запустити новий напрям цифрових сервісів для громадян —…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Від дата-центру до кишені: Google представила LLM Gemma 4 для серверів та Gemini Nano 4 для смартфонів",
+    "link": "https://itc.ua/ua/novini/vid-data-tsentru-do-kysheni-google-predstavyla-llm-gemma-4-dlya-serveriv-ta-gemini-nano-4-dlya-smartfoniv/",
+    "description": "Коли наприкінці минулого року Google випустила Gemini 3 Pro, це стало значним кроком для великих LLM компанії. Тепер компанія переносить частину тих самих технологій, що зробили ці моделі можливими, у…",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "5 ТБ за ціною 2 ТБ: тариф Google AI Pro збільшив сховище і отримав додаткові можливості",
+    "link": "https://itc.ua/ua/novini/google-ai-pro-zbilshyv-shovyshhe-5-tb/",
+    "description": "Google оновила тариф AI Pro і додала помітні бонуси без підвищення ціни. Користувачі отримають більше сховища та нові можливості для роботи з ШІ-сервісами.",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Пробуйте ще раз: Microsoft викотила екстрене оновлення Windows 11 з виправленням помилок",
+    "link": "https://itc.ua/ua/novini/probujte-shhe-raz-microsoft-vykotyla-ekstrene-onovlennya-windows-11-z-vypravlennyam-pomylok/",
+    "description": "Microsoft випустила екстрене оновлення для Windows 11 KB5086672 з виправленням помилок попереднього оновлення KB5079391.",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Google Photos тепер запускається на телевізорах Samsung: ось що він уміє",
+    "link": "https://itc.ua/ua/novini/google-photos-teper-zapuskayetsya-na-televizorah-samsung-os-shho-vin-umiye/",
+    "description": "Після попереднього оголошення про партнерство Google розкрила нові деталі щодо застосунку Google Photos для телевізорів Samsung, який доступний на нових моделях, які вже продаються у 2026 році.",
+    "date": "",
+    "image_url": ""
+  },
+  {
+    "title": "Linux обійшла Windows 11 за ігровою продуктивністю в Red Dead Redemption 2 та  Cyberpunk 2077",
+    "link": "https://itc.ua/ua/novini/linux-obijshla-windows-11-za-igrovoyu-produktyvnistyu-v-red-dead-redemption-2-ta-cyberpunk-2077/",
+    "description": "Ютубер NJ Tech провів порівняльний тест на ігрову продуктивність Windows 11 та CachyOS на базі Linux.",
+    "date": "",
+    "image_url": ""
+  }
+]
