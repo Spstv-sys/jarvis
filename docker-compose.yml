@@ -12,6 +12,7 @@ services:
       - OLLAMA_HOST=http://ollama:11434
       - CHROMA_HOST=chromadb
       - CHROMA_PORT=8000
+      - TESSERACT_PATH=/usr/bin/tesseract
     volumes:
       - ./knowledge_base:/app/knowledge_base
       - ./jarvis_vector_db:/app/jarvis_vector_db
