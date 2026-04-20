@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.git/
+.gitignore
+*.bat
+jarvis_server.log
+Converted_Audio/
+assets/
+*.ico
+node_modules/
