@@ -22,7 +22,9 @@ def execute(cmd, jarvis):
         return "Для чого саме мені потрібно використати скрипт?"
 
     # 1. Знаходимо всі доступні скрипти
-    code_dir = os.path.join(os.getenv("JARVIS_DRIVE", "H:\\Jarvis_Sorted"), "Code")
+    code_dir = os.path.realpath(
+        os.path.join(os.getenv("JARVIS_DRIVE", "H:\\Jarvis_Sorted"), "Code")
+    )
     if not os.path.exists(code_dir):
         return "Папка зі скриптами ще не створена."
 
@@ -49,18 +51,26 @@ def execute(cmd, jarvis):
         return "Помилка нейромережі під час вибору скрипта."
 
     # Очищаємо відповідь від можливого сміття
-    selected_file = ai_decision.strip()
+    selected_file = os.path.basename(ai_decision.strip())
 
-    # 3. Аналіз рішення та запуск
+    # 3. Аналіз рішення: файл має бути у відомому списку та в межах code_dir
     if selected_file == "NONE" or selected_file not in available_files:
         return f"Я переглянув свої файли, але не знайшов скрипта, який підходить для задачі: {task_description}."
 
+    filepath = os.path.realpath(os.path.join(code_dir, selected_file))
+    if not filepath.startswith(code_dir + os.sep):
+        return "Шлях до скрипта є некоректним — виконання скасовано."
+
     jarvis.audio.speak(f"Використовую скрипт {selected_file}.")
 
-    # Запуск обраного скрипта
+    # 4. Запуск обраного скрипта
     try:
-        filepath = os.path.join(code_dir, selected_file)
-        result = subprocess.run([sys.executable, filepath], capture_output=True, text=True, timeout=15)
+        result = subprocess.run(
+            [sys.executable, filepath],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
         
         if result.stderr:
             return f"Під час роботи скрипта виникла помилка: {result.stderr[-150:]}"
