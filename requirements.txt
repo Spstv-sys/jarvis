@@ -1,5 +1,10 @@
 # --- Бази даних та векторна пам'ять ---
 chromadb
+langchain-community
+langchain-text-splitters
+langchain-huggingface
+langchain-chroma
+sentence-transformers
 
 # --- ШІ Провайдери ---
 google-generativeai
@@ -30,6 +35,15 @@ Pillow
 requests
 duckduckgo-search
 python-dotenv
+beautifulsoup4
+
+# --- REST / WebSocket сервер ---
+fastapi
+uvicorn[standard]
+pydantic
+
+# --- UI ---
+customtkinter
 
 # --- Допоміжні утиліти ---
 colorama

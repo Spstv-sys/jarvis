@@ -96,13 +96,26 @@ class JarvisSmartMemory:
             return ""
 
     def memorize(self, text: str, source: str = "dialogue") -> None:
-        """Зберігає факт або репліку у векторну пам'ять."""
+        """Зберігає факт або репліку у векторну пам'ять (з дедуплікацією)."""
         if not text or not text.strip():
             return
         if not self._wait_ready(timeout=10.0):
             logger.warning("memorize: векторна БД недоступна.")
             return
         try:
+            # Deduplicate: skip storing if a very similar entry already exists.
+            # Uses a character-level Jaccard similarity on word sets as a fast proxy.
+            existing = self.vector_db.similarity_search(text, k=1)
+            if existing:
+                stored = existing[0].page_content.strip()
+                words_new    = set(text.strip().lower().split())
+                words_stored = set(stored.lower().split())
+                union = words_new | words_stored
+                if union:
+                    jaccard = len(words_new & words_stored) / len(union)
+                    if jaccard >= 0.85:
+                        logger.info("memorize: пропускаємо дублікат (Jaccard=%.2f).", jaccard)
+                        return
             self.vector_db.add_texts(
                 texts=[text],
                 metadatas=[{"source": source}]

@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import re
+import signal
 import threading
 import queue
 import logging
@@ -44,6 +45,11 @@ logging.basicConfig(
     encoding='utf-8'
 )
 logger = logging.getLogger(__name__)
+# Also emit logs to stderr so they are visible in the console
+_stream_handler = logging.StreamHandler()
+_stream_handler.setLevel(logging.WARNING)
+_stream_handler.setFormatter(logging.Formatter('%(levelname)s - [%(funcName)s] - %(message)s'))
+logging.getLogger().addHandler(_stream_handler)
 
 
 class DownloadHandler(FileSystemEventHandler):
@@ -106,7 +112,7 @@ class JarvisUltimate:
 
         self.handlers = CommandHandlers(self)
 
-        self.skills_dir = os.path.join(os.getcwd(), "skills")
+        self.skills_dir = config.SKILLS_DIR
         os.makedirs(self.skills_dir, exist_ok=True)
         os.makedirs(os.path.join(self.skills_dir, "pending"), exist_ok=True)
         self.dynamic_skills = []
@@ -114,6 +120,25 @@ class JarvisUltimate:
 
         self.start_file_monitor()
         self.start_hardware_monitor()
+
+        # Graceful shutdown on SIGTERM (e.g. systemd stop)
+        try:
+            signal.signal(signal.SIGTERM, self._signal_handler)
+        except (OSError, ValueError):
+            pass  # not available on all platforms / non-main threads
+
+    # ------------------------------------------------------------------
+    # GRACEFUL SHUTDOWN
+    # ------------------------------------------------------------------
+    def _signal_handler(self, signum, frame) -> None:
+        logger.info(f"Отримано сигнал {signum}, зупиняю систему...")
+        self.shutdown()
+
+    def shutdown(self) -> None:
+        """Stop all background loops and release resources."""
+        logger.info("=== ЗУПИНКА JARVIS ===")
+        self.is_running = False
+        self.stop_event.set()
 
     # ------------------------------------------------------------------
     # SPEECH QUEUE
@@ -217,7 +242,12 @@ class JarvisUltimate:
             f"Поточний інтелект: {self.llm.active_provider}."
         )
 
-        self.start_processing_loop()
+        try:
+            self.start_processing_loop()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            self.shutdown()
         print(f"\n{Fore.RED}🛑 Зупинка системи.")
         sys.exit(0)
 
@@ -360,6 +390,25 @@ class JarvisUltimate:
                     logger.info(f"execute_command: маршрут '{key}' для команди {cmd!r}")
                     return handler(cmd)
 
+        # Fuzzy fallback: try rapidfuzz partial_ratio against all triggers
+        best_key     = None
+        best_score   = 0
+        best_handler = None
+        for key, handler in ROUTES:
+            for trigger in config.TRIGGERS.get(key, []):
+                score = fuzz.partial_ratio(cmd.lower(), trigger.lower())
+                if score > best_score:
+                    best_score   = score
+                    best_key     = key
+                    best_handler = handler
+
+        if best_score >= self.fuzzy_threshold and best_handler is not None:
+            logger.info(
+                f"execute_command: fuzzy маршрут '{best_key}' "
+                f"(score={best_score}) для команди {cmd!r}"
+            )
+            return best_handler(cmd)
+
         logger.info(f"execute_command: маршрут не знайдено, передаю в handle_ai_chat: {cmd!r}")
         return self.handle_ai_chat(cmd)
 
@@ -382,3 +431,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print(f"\n{Fore.RED}🛑 Екстрена зупинка системи.")
         sys.exit(0)
+    except Exception as e:
+        logger.error(f"Критична помилка запуску: {e}", exc_info=True)
+        sys.exit(1)

@@ -1,14 +1,17 @@
 import os
 import sys
+import time
 import asyncio
 import logging
 import threading
 import queue
 import psutil
 import uvicorn
+from collections import defaultdict
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException, Depends
+from fastapi.security.api_key import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -29,8 +32,48 @@ logging.basicConfig(
     encoding='utf-8'
 )
 logger = logging.getLogger(__name__)
+_stream_handler = logging.StreamHandler()
+_stream_handler.setLevel(logging.WARNING)
+_stream_handler.setFormatter(logging.Formatter('%(levelname)s - [%(funcName)s] - %(message)s'))
+logging.getLogger().addHandler(_stream_handler)
 
 jarvis: JarvisUltimate | None = None
+
+# ---------------------------------------------------------------------------
+# API Key authentication (optional — only enforced when JARVIS_API_KEY is set)
+# ---------------------------------------------------------------------------
+_API_KEY        = os.getenv("JARVIS_API_KEY", "")
+_api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+def _verify_api_key(api_key: str | None = Depends(_api_key_header)) -> None:
+    """Raise 403 if JARVIS_API_KEY is configured and the header doesn't match."""
+    if _API_KEY and api_key != _API_KEY:
+        raise HTTPException(status_code=403, detail="Invalid or missing API key.")
+
+
+# ---------------------------------------------------------------------------
+# Simple per-IP rate limiting (sliding window, 30 req / 60 s)
+# ---------------------------------------------------------------------------
+_RATE_LIMIT_MAX    = int(os.getenv("JARVIS_RATE_LIMIT", "30"))
+_RATE_LIMIT_WINDOW = 60  # seconds
+_rate_store: dict[str, list[float]] = defaultdict(list)
+_rate_lock = threading.Lock()
+
+
+def _check_rate_limit(request: Request) -> None:
+    """Raise 429 if the caller IP exceeds the configured request rate."""
+    if _RATE_LIMIT_MAX <= 0:
+        return
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+    with _rate_lock:
+        timestamps = _rate_store[client_ip]
+        # Drop timestamps outside the window
+        _rate_store[client_ip] = [t for t in timestamps if now - t < _RATE_LIMIT_WINDOW]
+        if len(_rate_store[client_ip]) >= _RATE_LIMIT_MAX:
+            raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again later.")
+        _rate_store[client_ip].append(now)
 
 # ---------------------------------------------------------------------------
 # WebSocket менеджер
@@ -164,7 +207,12 @@ class CommandBody(BaseModel):
     text: str
 
 @app.post("/command")
-async def send_command(body: CommandBody):
+async def send_command(
+    body: CommandBody,
+    request: Request,
+    _auth: None = Depends(_verify_api_key),
+):
+    _check_rate_limit(request)
     if not jarvis_ready.is_set():
         logger.warning(f"Команда відхилена (Jarvis не готовий): {body.text!r}")
         return {"status": "not_ready"}

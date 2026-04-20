@@ -27,6 +27,18 @@ class GeminiProvider(BaseLLMProvider):
         """Expose the underlying genai.Client for direct Vision API calls."""
         return self._client
 
+    def generate_vision(self, image, query: str) -> str | None:
+        """Analyse an image using the Gemini Vision API."""
+        try:
+            res = self._client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=[image, query],
+            )
+            return res.text
+        except Exception as e:
+            logger.error(f"Gemini vision error: {e}")
+            return None
+
     def generate(self, prompt: str) -> str | None:
         try:
             res = self._client.models.generate_content(
