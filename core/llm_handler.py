@@ -30,6 +30,7 @@ class LLMHandler:
         self.active_provider   = "deepseek"
         self.short_term_memory = deque(maxlen=self.MAX_SHORT_TERM)
         self._response_cache: dict = {}
+        self._cache_lock       = threading.Lock()
 
         print(f"{Fore.CYAN}⚙️ Ініціалізація Мовних Моделей (LLM)...")
         self._providers: dict[str, BaseLLMProvider] = {}
@@ -132,14 +133,16 @@ class LLMHandler:
     # -------------------------------------------------------------------------
     def _get_cached(self, prompt: str) -> str | None:
         key = hashlib.md5(prompt.encode()).hexdigest()
-        return self._response_cache.get(key)
+        with self._cache_lock:
+            return self._response_cache.get(key)
 
     def _set_cached(self, prompt: str, response: str) -> None:
         key = hashlib.md5(prompt.encode()).hexdigest()
-        if len(self._response_cache) >= self.CACHE_MAX:
-            oldest = next(iter(self._response_cache))
-            del self._response_cache[oldest]
-        self._response_cache[key] = response
+        with self._cache_lock:
+            if len(self._response_cache) >= self.CACHE_MAX:
+                oldest = next(iter(self._response_cache))
+                del self._response_cache[oldest]
+            self._response_cache[key] = response
 
     # -------------------------------------------------------------------------
     # ГЕНЕРАЦІЯ

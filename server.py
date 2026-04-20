@@ -1,14 +1,16 @@
 import os
 import sys
+import time
 import asyncio
 import logging
 import threading
 import queue
 import psutil
 import uvicorn
+from collections import defaultdict
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -31,6 +33,28 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 jarvis: JarvisUltimate | None = None
+
+# ---------------------------------------------------------------------------
+# API-key auth + per-IP rate limiting for POST /command
+# ---------------------------------------------------------------------------
+_JARVIS_API_KEY  = os.getenv("JARVIS_API_KEY")
+_RATE_LIMIT      = int(os.getenv("JARVIS_RATE_LIMIT", "30"))   # requests per window
+_RATE_WINDOW     = 60                                            # seconds
+_rate_counters: dict[str, list[float]] = defaultdict(list)
+_rate_lock = threading.Lock()
+
+
+def _check_rate_limit(client_ip: str) -> bool:
+    """Return True if the request is within the rate limit, False otherwise."""
+    now = time.monotonic()
+    with _rate_lock:
+        recent = [t for t in _rate_counters[client_ip] if now - t < _RATE_WINDOW]
+        if len(recent) >= _RATE_LIMIT:
+            _rate_counters[client_ip] = recent
+            return False
+        recent.append(now)
+        _rate_counters[client_ip] = recent
+    return True
 
 # ---------------------------------------------------------------------------
 # WebSocket менеджер
@@ -164,7 +188,22 @@ class CommandBody(BaseModel):
     text: str
 
 @app.post("/command")
-async def send_command(body: CommandBody):
+async def send_command(body: CommandBody, request: Request):
+    client_ip = request.client.host if request.client else None
+    if client_ip is None:
+        # Cannot determine client IP — reject to prevent rate-limit bypass
+        raise HTTPException(status_code=400, detail="Bad Request")
+
+    if _JARVIS_API_KEY:
+        api_key = request.headers.get("X-API-Key", "")
+        if api_key != _JARVIS_API_KEY:
+            logger.warning(f"REST /command: неправильний API-ключ від {client_ip}")
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+    if not _check_rate_limit(client_ip):
+        logger.warning(f"REST /command: ліміт запитів вичерпано для {client_ip}")
+        raise HTTPException(status_code=429, detail="Too Many Requests")
+
     if not jarvis_ready.is_set():
         logger.warning(f"Команда відхилена (Jarvis не готовий): {body.text!r}")
         return {"status": "not_ready"}
