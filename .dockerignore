@@ -8,6 +8,6 @@ __pycache__/
 *.bat
 jarvis_server.log
 Converted_Audio/
-assets/
 *.ico
 node_modules/
+.env
