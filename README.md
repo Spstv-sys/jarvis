@@ -2,7 +2,10 @@
 
 Голосовий AI-асистент на Python.
 
-## 🖥️ Запуск на Windows (повний режим з GUI та мікрофоном)
+## 🖥️ Запуск на Windows (GUI + мікрофон)
+
+GUI і мікрофон на Windows завжди запускаються локально через `RUN_JARVIS.bat`.
+Docker використовується лише для Ollama та ChromaDB.
 
 ```bash
 # 1. Створити venv
@@ -15,7 +18,10 @@ pip install -r requirements.txt
 # 3. Налаштувати змінні середовища
 copy .env.example .env
 
-# 4. Запустити
+# 4. Запустити інфраструктуру в Docker
+docker-compose up -d
+
+# 5. Запустити GUI локально
 RUN_JARVIS.bat
 ```
 
@@ -28,12 +34,13 @@ RUN_JARVIS.bat
 ```bash
 copy .env.example .env
 # Відкрити .env та заповнити API ключі
+# Змінити OLLAMA_HOST=http://ollama:11434
 ```
 
 ### Запуск
 
 ```bash
-docker-compose up -d
+docker-compose -f docker-compose.server.yml up -d
 ```
 
 ### Завантажити LLM модель (тільки перший раз)
@@ -45,7 +52,7 @@ docker exec -it jarvis-ollama ollama pull llama3
 ### Зупинка
 
 ```bash
-docker-compose down
+docker-compose -f docker-compose.server.yml down
 ```
 
 ### Доступні адреси
