@@ -38,6 +38,7 @@ init(autoreset=True)
 load_dotenv()
 
 
+logging.basicConfig(level=logging.INFO)   # set root level first
 _log_handler = logging.handlers.RotatingFileHandler(
     'jarvis_system.log',
     maxBytes=5 * 1024 * 1024,  # 5 MB
@@ -47,10 +48,7 @@ _log_handler = logging.handlers.RotatingFileHandler(
 _log_handler.setFormatter(
     logging.Formatter('%(asctime)s - %(levelname)s - [%(funcName)s] - %(message)s')
 )
-logging.basicConfig(
-    level=logging.INFO,
-    handlers=[_log_handler],
-)
+logging.getLogger().handlers = [_log_handler]   # replace with rotating handler
 logger = logging.getLogger(__name__)
 
 

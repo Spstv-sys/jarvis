@@ -25,6 +25,7 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 # ЛОГУВАННЯ з ротацією
 # ---------------------------------------------------------------------------
+logging.basicConfig(level=logging.INFO)   # set root level first
 _log_handler = logging.handlers.RotatingFileHandler(
     'jarvis_server.log',
     maxBytes=5 * 1024 * 1024,  # 5 MB
@@ -34,10 +35,7 @@ _log_handler = logging.handlers.RotatingFileHandler(
 _log_handler.setFormatter(
     logging.Formatter('%(asctime)s - %(levelname)s - [%(funcName)s] - %(message)s')
 )
-logging.basicConfig(
-    level=logging.INFO,
-    handlers=[_log_handler],
-)
+logging.getLogger().handlers = [_log_handler]   # replace with rotating handler
 logger = logging.getLogger(__name__)
 
 jarvis: JarvisUltimate | None = None
@@ -250,7 +248,7 @@ async def websocket_endpoint(ws: WebSocket, token: str = ""):
     """
     if _JARVIS_API_KEY and token != _JARVIS_API_KEY:
         logger.warning(f"WebSocket: відхилено з'єднання від {ws.client} — невірний токен")
-        await ws.close(code=4401)
+        await ws.close(code=1008)  # 1008 = Policy Violation (RFC 6455)
         return
 
     await manager.connect(ws)

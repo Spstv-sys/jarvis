@@ -58,7 +58,7 @@ def execute(cmd, jarvis):
         return "Помилка зв'язку з ШІ."
 
     try:
-        filename_match = re.search(r"FILENAME:\s*(.*\.py)", response)
+        filename_match = re.search(r"FILENAME:\s*([^/\\\s]+\.py)", response)
         filename = filename_match.group(1).strip() if filename_match else f"script_{int(time.time())}.py"
         # Prevent path traversal in LLM-supplied filename
         filename = os.path.basename(filename)
@@ -76,7 +76,7 @@ def execute(cmd, jarvis):
     os.makedirs(target_dir, exist_ok=True)
     filepath = os.path.join(target_dir, filename)
     # Ensure the resolved path stays within target_dir
-    if not os.path.realpath(filepath).startswith(target_dir):
+    if not os.path.realpath(filepath).startswith(target_dir + os.sep):
         return "Назва файлу від ШІ є некоректною — збереження скасовано."
 
     with open(filepath, "w", encoding="utf-8") as f:

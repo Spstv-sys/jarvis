@@ -58,7 +58,7 @@ def execute(cmd, jarvis):
         return f"Я переглянув свої файли, але не знайшов скрипта, який підходить для задачі: {task_description}."
 
     filepath = os.path.realpath(os.path.join(code_dir, selected_file))
-    if not filepath.startswith(code_dir):
+    if not filepath.startswith(code_dir + os.sep):
         return "Шлях до скрипта є некоректним — виконання скасовано."
 
     jarvis.audio.speak(f"Використовую скрипт {selected_file}.")

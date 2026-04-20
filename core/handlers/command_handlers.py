@@ -442,8 +442,9 @@ class CommandHandlers:
         ]
         file_path = None
         for d in search_dirs:
+            real_d = os.path.realpath(d)
             candidate = os.path.realpath(os.path.join(d, filename))
-            if candidate.startswith(os.path.realpath(d)) and os.path.exists(candidate):
+            if candidate.startswith(real_d + os.sep) and os.path.exists(candidate):
                 file_path = candidate
                 break
         if not file_path:
