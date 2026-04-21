@@ -4,7 +4,6 @@ import time
 import asyncio
 import threading
 import logging
-import pathlib
 import tempfile
 import numpy as np
 from colorama import Fore
@@ -90,21 +89,31 @@ class AudioManager:
             self._oww_ready.set()
             return
         try:
-            model_name = config.OWW_MODEL_NAME
-            # Шукаємо модель у директорії пакету openwakeword (де download_models її зберігає)
-            oww_dir = pathlib.Path(openwakeword.__file__).parent / "resources" / "models"
-            model_path = oww_dir / f"{model_name}.onnx"
-            if not model_path.exists():
+            model_name    = getattr(config, "OWW_MODEL_NAME",    "hey_jarvis")
+            vad_threshold = getattr(config, "OWW_VAD_THRESHOLD", 0.5)
+
+            # Use the OWW API to locate bundled models — avoids hard-coded paths
+            # that differ between platforms / install methods.
+            pretrained_paths = openwakeword.get_pretrained_model_paths("onnx")
+            model_stem = model_name.replace(" ", "_")
+            model_exists = any(
+                os.path.splitext(os.path.basename(p))[0] == model_stem
+                for p in pretrained_paths
+            )
+
+            if not model_exists:
                 logger.info(f"OWW: модель '{model_name}' не знайдена, завантажую з мережі...")
-                openwakeword.utils.download_models(model_names=[model_name])
+                # download_models() does not accept a model filter; it fetches all
+                # pre-trained ONNX models (a one-time ~50 MB download).
+                openwakeword.utils.download_models()
             else:
-                logger.info(f"OWW: модель '{model_name}' знайдена у кеші ({model_path}).")
+                logger.info(f"OWW: модель '{model_name}' вже є, завантаження пропущено.")
             self.owwModel = OWWModel(
                 wakeword_models=[model_name],
                 inference_framework="onnx",
-                vad_threshold=config.OWW_VAD_THRESHOLD,
+                vad_threshold=vad_threshold,
             )
-            logger.info(f"OWW: модель '{model_name}' готова (VAD={config.OWW_VAD_THRESHOLD}).")
+            logger.info(f"OWW: модель '{model_name}' готова (VAD threshold={vad_threshold}).")
         except Exception as e:
             logger.error(f"OWW: помилка завантаження моделі: {e}")
             self.owwModel = None
