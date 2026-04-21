@@ -32,7 +32,7 @@ docker-compose up -d
 Write-Host "Очікування ChromaDB на :8000..." -ForegroundColor Yellow
 while ($true) {
     try {
-        Invoke-WebRequest -Uri "http://localhost:8000/api/v1/heartbeat" -TimeoutSec 1 -ErrorAction Stop | Out-Null
+        Invoke-WebRequest -Uri "http://localhost:8000/api/v2/heartbeat" -TimeoutSec 1 -ErrorAction Stop | Out-Null
         Write-Host "✅ ChromaDB готовий!" -ForegroundColor Green
         break
     } catch {
