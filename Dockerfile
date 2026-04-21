@@ -8,6 +8,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         curl \
         tesseract-ocr \
+        portaudio19-dev \
+        libportaudio2 \
+        libasound2-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

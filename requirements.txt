@@ -15,12 +15,13 @@ certifi
 
 # --- Аудіо, Голос та Розпізнавання ---
 SpeechRecognition
-openwakeword
+openwakeword>=0.6.0
 PyAudio
 numpy
 faster-whisper
 edge-tts
-pygame
+# pygame — опціональний (не потрібен у Docker/серверному середовищі)
+# pygame
 
 # --- Системні утиліти та автоматизація ---
 psutil

@@ -4,6 +4,7 @@ import time
 import asyncio
 import threading
 import logging
+import pathlib
 import tempfile
 import numpy as np
 from colorama import Fore
@@ -17,9 +18,17 @@ except ImportError:
     pygame = None
     _PYGAME_AVAILABLE = False
 import speech_recognition as sr
-import openwakeword
-from openwakeword.model import Model
+try:
+    import openwakeword
+    from openwakeword.model import Model as OWWModel
+    _OWW_AVAILABLE = True
+except ImportError:
+    openwakeword = None  # type: ignore[assignment]
+    OWWModel = None  # type: ignore[assignment,misc]
+    _OWW_AVAILABLE = False
 import pyaudio
+
+import config
 
 logger = logging.getLogger(__name__)
 
@@ -75,18 +84,27 @@ class AudioManager:
 
     def _load_oww_model(self):
         """Завантаження openwakeword у фоні — не блокує старт"""
+        if not _OWW_AVAILABLE:
+            logger.warning("OWW: бібліотека openwakeword недоступна. Буде використано Whisper-fallback.")
+            self.owwModel = None
+            self._oww_ready.set()
+            return
         try:
-            model_path = os.path.join(
-                os.path.expanduser("~"),
-                ".cache", "openwakeword", "hey_jarvis.onnx"
-            )
-            if not os.path.exists(model_path):
-                logger.info("OWW: завантаження моделей з мережі...")
-                openwakeword.utils.download_models()
+            model_name = config.OWW_MODEL_NAME
+            # Шукаємо модель у директорії пакету openwakeword (де download_models її зберігає)
+            oww_dir = pathlib.Path(openwakeword.__file__).parent / "resources" / "models"
+            model_path = oww_dir / f"{model_name}.onnx"
+            if not model_path.exists():
+                logger.info(f"OWW: модель '{model_name}' не знайдена, завантажую з мережі...")
+                openwakeword.utils.download_models(model_names=[model_name])
             else:
-                logger.info("OWW: моделі вже є у кеші, завантаження пропущено.")
-            self.owwModel = Model(wakeword_models=["hey_jarvis"], inference_framework="onnx")
-            logger.info("OWW: модель готова.")
+                logger.info(f"OWW: модель '{model_name}' знайдена у кеші ({model_path}).")
+            self.owwModel = OWWModel(
+                wakeword_models=[model_name],
+                inference_framework="onnx",
+                vad_threshold=config.OWW_VAD_THRESHOLD,
+            )
+            logger.info(f"OWW: модель '{model_name}' готова (VAD={config.OWW_VAD_THRESHOLD}).")
         except Exception as e:
             logger.error(f"OWW: помилка завантаження моделі: {e}")
             self.owwModel = None
@@ -200,9 +218,13 @@ class AudioManager:
         # Чекаємо поки модель завантажиться у фоні (максимум 60 сек)
         if not self._oww_ready.wait(timeout=60):
             logger.error("OWW: модель не завантажилась за 60 секунд.")
+            if config.OWW_FALLBACK_TO_WHISPER:
+                return self._whisper_wake_word_fallback()
             return False
         if self.owwModel is None:
-            logger.error("OWW: модель недоступна.")
+            logger.warning("OWW: модель недоступна, перехід на Whisper-fallback.")
+            if config.OWW_FALLBACK_TO_WHISPER:
+                return self._whisper_wake_word_fallback()
             return False
 
         print(f"\n{Fore.CYAN}🎧 Очікування команди...")
@@ -210,13 +232,19 @@ class AudioManager:
         stream = None
 
         try:
-            stream = self.audio_interface.open(
-                format=pyaudio.paInt16,
-                channels=1,
-                rate=16000,
-                input=True,
-                frames_per_buffer=1280
-            )
+            try:
+                stream = self.audio_interface.open(
+                    format=pyaudio.paInt16,
+                    channels=1,
+                    rate=16000,
+                    input=True,
+                    frames_per_buffer=1280
+                )
+            except OSError as e:
+                logger.error(f"OWW: не вдалося відкрити мікрофон: {e}")
+                if config.OWW_FALLBACK_TO_WHISPER:
+                    return self._whisper_wake_word_fallback()
+                return False
 
             while True:
                 if self.stop_event.is_set():
@@ -230,11 +258,10 @@ class AudioManager:
                     self.current_volume = rms
 
                 prediction = self.owwModel.predict(data)
-                score = max(
-                    prediction.get('hey_jarvis',      0),
-                    prediction.get('hey_jarvis_v0.1', 0)
-                )
-                if score > 0.35:
+                score = max(prediction.values(), default=0)
+                if score > config.OWW_SENSITIVITY:
+                    detected_model = max(prediction, key=prediction.get) if prediction else "unknown"
+                    logger.info(f"OWW: wake word виявлено! модель='{detected_model}', score={score:.3f}")
                     self.play_fx("wake")
                     self.current_volume = 0
                     self.speak("Слухаю.")
@@ -251,6 +278,65 @@ class AudioManager:
                     stream.close()
                 except Exception:
                     pass
+
+    def _whisper_wake_word_fallback(self) -> bool:
+        """Fallback: записує ~3 секунди через speech_recognition і перевіряє
+        чи є слово 'джарвіс' у Whisper-транскрипції."""
+        if self.whisper_model is None:
+            logger.error("Whisper-fallback: Whisper не завантажено, wake word неможливо детектувати.")
+            return False
+
+        print(f"\n{Fore.YELLOW}🎧 [Whisper-fallback] Очікування команди 'джарвіс'...")
+        tmp      = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        tmp_path = tmp.name
+        tmp.close()
+
+        try:
+            with sr.Microphone() as source:
+                if not self._noise_calibrated:
+                    self.recognizer.adjust_for_ambient_noise(source, duration=1.0)
+                    self._noise_calibrated = True
+                self.recognizer.pause_threshold       = 1.0
+                self.recognizer.non_speaking_duration = 0.3
+                audio = self.recognizer.listen(source, timeout=8, phrase_time_limit=3)
+
+            with open(tmp_path, "wb") as f:
+                f.write(audio.get_wav_data())
+
+            segments, _ = self.whisper_model.transcribe(
+                tmp_path,
+                beam_size=1,
+                best_of=1,
+                language="uk",
+                vad_filter=True,
+                vad_parameters=dict(min_silence_duration_ms=300),
+                condition_on_previous_text=False,
+            )
+            text = "".join(s.text for s in segments).strip().lower()
+            logger.debug(f"Whisper-fallback: розпізнано '{text}'")
+
+            if "джарвіс" in text or "jarvis" in text:
+                logger.info(f"Whisper-fallback: wake word виявлено в тексті '{text}'")
+                self.play_fx("wake")
+                self.current_volume = 0
+                self.speak("Слухаю.")
+                return True
+            return False
+
+        except sr.WaitTimeoutError:
+            return False
+        except OSError as e:
+            logger.error(f"Whisper-fallback: не вдалося відкрити мікрофон: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Whisper-fallback: помилка: {e}")
+            return False
+        finally:
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except OSError:
+                pass
 
     def listen_for_command(self, dictation_mode: bool = False) -> str | None:
         if self.whisper_model is None:
