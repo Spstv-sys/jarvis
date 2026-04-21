@@ -36,3 +36,4 @@ Thumbs.db
 *.sqlite
 *.sqlite3
 jarvis_vector_db/
+jarvis_*.log*
