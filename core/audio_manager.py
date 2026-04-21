@@ -94,10 +94,12 @@ class AudioManager:
 
             # Use the OWW API to locate bundled models — avoids hard-coded paths
             # that differ between platforms / install methods.
-            # Substring match handles versioned filenames (e.g. hey_jarvis_v0.1.onnx).
+            # stem.startswith handles versioned filenames (e.g. hey_jarvis_v0.1.onnx).
             pretrained_paths = openwakeword.get_pretrained_model_paths("onnx")
+            model_stem = model_name.replace(" ", "_")
             model_exists = any(
-                model_name in p and os.path.exists(p)
+                os.path.splitext(os.path.basename(p))[0].startswith(model_stem)
+                and os.path.exists(p)
                 for p in pretrained_paths
             )
 
