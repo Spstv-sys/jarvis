@@ -8,6 +8,8 @@ import tempfile
 import numpy as np
 from colorama import Fore
 
+import config
+
 import edge_tts
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import pygame
@@ -56,6 +58,8 @@ class AudioManager:
 
             if self.audio_interface.get_device_count() == 0:
                 logger.warning("Аудіопристрої вводу не знайдені.")
+            else:
+                self._log_input_devices()
 
             self.whisper_model = self._load_whisper()
 
@@ -66,6 +70,23 @@ class AudioManager:
                 self.whisper_model = self._load_whisper(force_cpu=True)
 
         threading.Thread(target=self._load_oww_model, daemon=True, name="OWWLoader").start()
+
+    def _log_input_devices(self) -> None:
+        """Logs all available audio input devices with their indices.
+
+        This helps users identify the correct value for JARVIS_MIC_INDEX
+        when the default microphone is not the one they want to use.
+        """
+        count = self.audio_interface.get_device_count()
+        lines = ["Доступні пристрої вводу (для JARVIS_MIC_INDEX):"]
+        for i in range(count):
+            try:
+                info = self.audio_interface.get_device_info_by_index(i)
+                if info.get("maxInputChannels", 0) > 0:
+                    lines.append(f"  [{i}] {info['name']}")
+            except Exception:
+                pass
+        logger.info("\n".join(lines))
 
     def _load_oww_model(self):
         """Завантаження openwakeword у фоні — не блокує старт"""
@@ -199,12 +220,14 @@ class AudioManager:
         stream = None
 
         try:
+            mic_index = config.MIC_DEVICE_INDEX if config.MIC_DEVICE_INDEX >= 0 else None
             stream = self.audio_interface.open(
                 format=pyaudio.paInt16,
                 channels=1,
                 rate=16000,
                 input=True,
-                frames_per_buffer=1280
+                frames_per_buffer=1280,
+                input_device_index=mic_index,
             )
 
             while True:
@@ -223,10 +246,10 @@ class AudioManager:
                     prediction.get('hey_jarvis',      0),
                     prediction.get('hey_jarvis_v0.1', 0)
                 )
-                if score > 0.35:
+                if score > config.WAKE_WORD_THRESHOLD:
                     self.play_fx("wake")
                     self.current_volume = 0
-                    self.speak("Слухаю.")
+                    self.speak_tts("Слухаю.")
                     return True
 
         except Exception as e:
@@ -251,7 +274,8 @@ class AudioManager:
         tmp.close()
 
         try:
-            with sr.Microphone() as source:
+            mic_index = config.MIC_DEVICE_INDEX if config.MIC_DEVICE_INDEX >= 0 else None
+            with sr.Microphone(device_index=mic_index) as source:
                 if not self._noise_calibrated:
                     self.recognizer.adjust_for_ambient_noise(source, duration=1.0)
                     self._noise_calibrated = True
@@ -261,7 +285,11 @@ class AudioManager:
 
                 print(f"{Fore.CYAN}🎤 Слухаю вас...")
                 limit = 180 if dictation_mode else 15
-                audio = self.recognizer.listen(source, timeout=8, phrase_time_limit=limit)
+                audio = self.recognizer.listen(
+                    source,
+                    timeout=config.LISTEN_TIMEOUT,
+                    phrase_time_limit=limit,
+                )
 
             with open(tmp_path, "wb") as f:
                 f.write(audio.get_wav_data())

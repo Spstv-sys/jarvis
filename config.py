@@ -20,6 +20,20 @@ VOICE_MODEL  = "uk-UA-OstapNeural"
 VOICE_RATE   = "+30%"
 WAKE_WORDS   = ["hey_jarvis"]
 
+# --- Аудіо / мікрофон ---
+# Індекс пристрою вводу PyAudio / SpeechRecognition (-1 = системний за замовчуванням).
+# Запустіть Джарвіса один раз, щоб побачити список доступних пристроїв у логах,
+# і потім встановіть потрібний індекс у .env (JARVIS_MIC_INDEX=<N>).
+MIC_DEVICE_INDEX    = int(os.getenv("JARVIS_MIC_INDEX", "-1"))
+
+# Поріг впевненості моделі wake-word (0.0 – 1.0).
+# Зменшіть, якщо Джарвіс погано чує; збільшіть, якщо спрацьовує зайво.
+WAKE_WORD_THRESHOLD = float(os.getenv("JARVIS_WAKE_THRESHOLD", "0.35"))
+
+# Тайм-аут очікування команди після wake-word (секунди).
+# Збільшіть, якщо не встигаєте почати говорити після "Hey Jarvis".
+LISTEN_TIMEOUT      = int(os.getenv("JARVIS_LISTEN_TIMEOUT", "8"))
+
 # ==========================================
 # 3. ДОДАТКИ
 # ==========================================
