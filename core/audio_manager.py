@@ -257,9 +257,15 @@ class AudioManager:
                     rms = np.sqrt(np.mean(data.astype(np.float64) ** 2))
                     self.current_volume = rms
 
-                prediction = self.owwModel.predict(data)
+                prediction = self.owwModel.predict(
+                    data,
+                    debounce_time=config.OWW_DEBOUNCE_TIME,
+                    # threshold tells OWW when to reset the debounce timer; the
+                    # external check below still guards the application trigger.
+                    threshold={config.OWW_MODEL_NAME: config.OWW_WAKE_THRESHOLD},
+                )
                 score = max(prediction.values(), default=0)
-                if score > config.OWW_SENSITIVITY:
+                if score > config.OWW_WAKE_THRESHOLD:
                     detected_model = max(prediction, key=prediction.get) if prediction else "unknown"
                     logger.info(f"OWW: wake word виявлено! модель='{detected_model}', score={score:.3f}")
                     self.play_fx("wake")
