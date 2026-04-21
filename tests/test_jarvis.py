@@ -290,7 +290,11 @@ def test_check_microphone_found():
     """check_microphone returns True when at least one input device exists."""
     mock_pa = MagicMock()
     mock_pa.get_device_count.return_value = 2
+    # side_effect must cover both the __init__ device-listing loop and the
+    # subsequent check_microphone loop (each iterates over all 2 devices).
     mock_pa.get_device_info_by_index.side_effect = [
+        {"maxInputChannels": 0, "name": "Speaker"},
+        {"maxInputChannels": 1, "name": "Built-in Mic"},
         {"maxInputChannels": 0, "name": "Speaker"},
         {"maxInputChannels": 1, "name": "Built-in Mic"},
     ]

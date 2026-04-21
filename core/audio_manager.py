@@ -69,6 +69,13 @@ class AudioManager:
             self.recognizer = sr.Recognizer()
             self.audio_interface = pyaudio.PyAudio()
 
+            count = self.audio_interface.get_device_count()
+            logger.info("Доступні пристрої вводу:")
+            for i in range(count):
+                info = self.audio_interface.get_device_info_by_index(i)
+                if info.get("maxInputChannels", 0) > 0:
+                    logger.info(f"  [{i}] {info.get('name', '?')}")
+
             self.mic_available = self.check_microphone()
 
             self.whisper_model = self._load_whisper()
@@ -98,6 +105,7 @@ class AudioManager:
             model_stem = model_name.replace(" ", "_")
             model_exists = any(
                 os.path.splitext(os.path.basename(p))[0] == model_stem
+                and os.path.exists(p)
                 for p in pretrained_paths
             )
 
@@ -261,21 +269,30 @@ class AudioManager:
         print(f"\n{Fore.CYAN}🎧 Очікування команди...")
         self.current_volume = 0
         stream = None
+        mic_index = getattr(config, "MIC_INDEX", None)
 
         try:
-            try:
-                stream = self.audio_interface.open(
-                    format=pyaudio.paInt16,
-                    channels=1,
-                    rate=16000,
-                    input=True,
-                    frames_per_buffer=1280
-                )
-            except OSError as e:
-                logger.error(f"OWW: не вдалося відкрити мікрофон: {e}")
-                if config.OWW_FALLBACK_TO_WHISPER:
-                    return self._whisper_wake_word_fallback()
-                return False
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    stream = self.audio_interface.open(
+                        format=pyaudio.paInt16,
+                        channels=1,
+                        rate=16000,
+                        input=True,
+                        frames_per_buffer=1280,
+                        input_device_index=mic_index,
+                    )
+                    break
+                except OSError as e:
+                    logger.warning(f"OWW: мікрофон недоступний (спроба {attempt+1}/{max_retries}): {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(2)
+                    else:
+                        logger.error("OWW: не вдалося відкрити мікрофон після всіх спроб.")
+                        if config.OWW_FALLBACK_TO_WHISPER:
+                            return self._whisper_wake_word_fallback()
+                        return False
 
             while True:
                 if self.stop_event.is_set():
@@ -296,6 +313,9 @@ class AudioManager:
                     threshold={config.OWW_MODEL_NAME: config.OWW_WAKE_THRESHOLD},
                 )
                 score = max(prediction.values(), default=0)
+                if score > 0.1:
+                    bar = '█' * int(score * 20)
+                    print(f"\r🔊 OWW score: {score:.3f} [{bar:<20}]", end="", flush=True)
                 if score > config.OWW_WAKE_THRESHOLD:
                     detected_model = max(prediction, key=prediction.get) if prediction else "unknown"
                     logger.info(f"OWW: wake word виявлено! модель='{detected_model}', score={score:.3f}")

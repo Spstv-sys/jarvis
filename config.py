@@ -156,3 +156,4 @@ OWW_VAD_THRESHOLD      = float(os.getenv("OWW_VAD_THRESHOLD", "0.5"))   # Silero
 OWW_WAKE_THRESHOLD     = float(os.getenv("OWW_WAKE_THRESHOLD", "0.5"))  # поріг спрацювання wake word
 OWW_DEBOUNCE_TIME      = float(os.getenv("OWW_DEBOUNCE_TIME", "2.0"))   # секунди між спрацюваннями
 OWW_FALLBACK_TO_WHISPER = os.getenv("OWW_FALLBACK_TO_WHISPER", "true").lower() == "true"  # fallback на Whisper якщо OWW недоступний
+MIC_INDEX = int(os.getenv("JARVIS_MIC_INDEX")) if os.getenv("JARVIS_MIC_INDEX") else None
