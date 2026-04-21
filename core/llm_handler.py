@@ -4,7 +4,7 @@ import logging
 import hashlib
 import threading
 import concurrent.futures
-from collections import deque
+from collections import deque, OrderedDict
 from colorama import Fore
 
 import config
@@ -29,7 +29,7 @@ class LLMHandler:
         self.personality_mode  = "стандартний"
         self.active_provider   = "deepseek"
         self.short_term_memory = deque(maxlen=self.MAX_SHORT_TERM)
-        self._response_cache: dict = {}
+        self._response_cache: OrderedDict = OrderedDict()
         self._cache_lock       = threading.Lock()
 
         print(f"{Fore.CYAN}⚙️ Ініціалізація Мовних Моделей (LLM)...")
@@ -134,7 +134,11 @@ class LLMHandler:
     def _get_cached(self, prompt: str) -> str | None:
         key = hashlib.md5(prompt.encode()).hexdigest()
         with self._cache_lock:
-            return self._response_cache.get(key)
+            if key in self._response_cache:
+                # Move to end to mark as recently used (LRU)
+                self._response_cache.move_to_end(key)
+                return self._response_cache[key]
+            return None
 
     def _set_cached(self, prompt: str, response: str) -> None:
         key = hashlib.md5(prompt.encode()).hexdigest()
@@ -165,11 +169,25 @@ class LLMHandler:
             return None
 
     def _call_provider(self, prompt: str) -> str | None:
-        provider = self._get_active_provider()
-        if provider is None:
-            logger.error(f"Провайдер '{self.active_provider}' недоступний.")
-            return None
-        return provider.generate(prompt)
+        """Try the active provider first; fall back to others on failure."""
+        providers_to_try = [self.active_provider] + [
+            name for name in self._providers if name != self.active_provider
+        ]
+        for name in providers_to_try:
+            provider = self._providers.get(name)
+            if provider is None:
+                continue
+            try:
+                result = provider.generate(prompt)
+                if result is not None:
+                    if name != self.active_provider:
+                        logger.warning(f"Використано резервний LLM-провайдер: {name}")
+                        self.audio.speak(f"Основний провайдер недоступний. Використовую резерв: {name}.")
+                    return result
+            except Exception as e:
+                logger.error(f"Провайдер '{name}' помилка: {e}")
+        logger.error("Всі LLM-провайдери недоступні.")
+        return None
 
     # -------------------------------------------------------------------------
     # СТРИМІНГ + TTS
@@ -180,15 +198,22 @@ class LLMHandler:
         return code_lines >= 2
 
     def _stream_and_speak(self, prompt: str) -> str | None:
-        try:
-            provider = self._get_active_provider()
+        provider = self._get_active_provider()
+        if provider is None:
+            logger.error(f"Клієнт {self.active_provider} недоступний, шукаю резерв...")
+            for name, p in self._providers.items():
+                if p is not None:
+                    provider = p
+                    logger.warning(f"_stream_and_speak: використовую резервний провайдер: {name}")
+                    break
             if provider is None:
-                logger.error(f"Клієнт {self.active_provider} недоступний.")
+                logger.error("Жоден LLM-провайдер недоступний.")
                 return None
 
-            full_text = ""
-            buffer    = ""
+        full_text = ""
+        buffer    = ""
 
+        try:
             for delta in provider.stream(prompt):
                 buffer    += delta
                 full_text += delta
@@ -211,7 +236,18 @@ class LLMHandler:
 
         except Exception as e:
             logger.error(f"Помилка стримінгу [{self.active_provider}]: {e}")
-            return None
+            if full_text:
+                # Return whatever was streamed before the failure
+                return full_text.strip()
+            # Fallback: non-streaming request through provider chain
+            logger.warning("Стримінг недоступний, спроба без стримінгу...")
+            answer = self._call_provider(prompt)
+            if answer:
+                if not self._looks_like_code(answer):
+                    self.audio.speak(answer)
+                else:
+                    self.audio.speak(self._CODE_SPOKEN_MSG)
+            return answer
 
     # -------------------------------------------------------------------------
     # ДІАЛОГ З ПАМ'ЯТТЮ

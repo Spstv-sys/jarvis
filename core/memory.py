@@ -17,11 +17,16 @@ class JarvisDatabase:
         self._create_tables()
 
     def _execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
-        """✅ Централізований execute — окремий cursor на кожен виклик"""
+        """✅ Централізований execute — окремий cursor на кожен виклик.
+
+        commit() викликається лише для записуючих операцій (не SELECT).
+        """
+        is_write = not sql.lstrip().upper().startswith("SELECT")
         with self._lock:
             cur = self.conn.cursor()
             cur.execute(sql, params)
-            self.conn.commit()
+            if is_write:
+                self.conn.commit()
             return cur
 
     def _create_tables(self) -> None:

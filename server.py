@@ -3,7 +3,6 @@ import sys
 import time
 import asyncio
 import logging
-import logging.handlers
 import threading
 import queue
 import psutil
@@ -19,23 +18,14 @@ from pydantic import BaseModel
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from main import JarvisUltimate
 import config
+from core.log import setup_rotating_logger
 from dotenv import load_dotenv
 load_dotenv()
 
 # ---------------------------------------------------------------------------
 # ЛОГУВАННЯ з ротацією
 # ---------------------------------------------------------------------------
-logging.basicConfig(level=logging.INFO)   # set root level first
-_log_handler = logging.handlers.RotatingFileHandler(
-    'jarvis_server.log',
-    maxBytes=5 * 1024 * 1024,  # 5 MB
-    backupCount=3,
-    encoding='utf-8',
-)
-_log_handler.setFormatter(
-    logging.Formatter('%(asctime)s - %(levelname)s - [%(funcName)s] - %(message)s')
-)
-logging.getLogger().handlers = [_log_handler]   # replace with rotating handler
+setup_rotating_logger('jarvis_server.log')
 logger = logging.getLogger(__name__)
 
 jarvis: JarvisUltimate | None = None
@@ -242,14 +232,22 @@ async def get_status():
 async def websocket_endpoint(ws: WebSocket, token: str = ""):
     """Accept WebSocket connections.
 
-    When ``JARVIS_API_KEY`` is set, the client must pass a matching
-    ``?token=<key>`` query parameter.  This is consistent with the
-    authentication model used on POST /command.
+    Authentication priority (when ``JARVIS_API_KEY`` is set):
+    1. ``Authorization: Bearer <key>`` request header (preferred — avoids
+       the token appearing in server access logs).
+    2. ``?token=<key>`` query parameter (retained for backward compatibility
+       with browser clients that cannot set custom WS headers).
     """
-    if _JARVIS_API_KEY and token != _JARVIS_API_KEY:
-        logger.warning(f"WebSocket: відхилено з'єднання від {ws.client} — невірний токен")
-        await ws.close(code=1008)  # 1008 = Policy Violation (RFC 6455)
-        return
+    if _JARVIS_API_KEY:
+        auth_header = ws.headers.get("authorization", "")
+        if auth_header.lower().startswith("bearer "):
+            supplied_token = auth_header[len("bearer "):]
+        else:
+            supplied_token = token  # fallback to query param
+        if supplied_token != _JARVIS_API_KEY:
+            logger.warning(f"WebSocket: відхилено з'єднання від {ws.client} — невірний токен")
+            await ws.close(code=1008)  # 1008 = Policy Violation (RFC 6455)
+            return
 
     await manager.connect(ws)
     try:

@@ -5,7 +5,6 @@ import re
 import threading
 import queue
 import logging
-import logging.handlers
 import shutil
 from datetime import datetime
 
@@ -17,6 +16,8 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from colorama import init, Fore
 from rapidfuzz import fuzz
+
+from core.log import setup_rotating_logger
 
 try:
     import pygame
@@ -37,18 +38,7 @@ from core.handlers import CommandHandlers
 init(autoreset=True)
 load_dotenv()
 
-
-logging.basicConfig(level=logging.INFO)   # set root level first
-_log_handler = logging.handlers.RotatingFileHandler(
-    'jarvis_system.log',
-    maxBytes=5 * 1024 * 1024,  # 5 MB
-    backupCount=3,
-    encoding='utf-8',
-)
-_log_handler.setFormatter(
-    logging.Formatter('%(asctime)s - %(levelname)s - [%(funcName)s] - %(message)s')
-)
-logging.getLogger().handlers = [_log_handler]   # replace with rotating handler
+setup_rotating_logger('jarvis_system.log')
 logger = logging.getLogger(__name__)
 
 
@@ -197,24 +187,25 @@ class JarvisUltimate:
     def start_processing_loop(self) -> None:
         """Main command-processing loop.
 
-        Pulls commands from ``input_queue`` and dispatches each one in a
-        dedicated BrainWorker thread.  Runs until ``self.is_running`` is False.
+        Pulls commands from ``input_queue`` and dispatches each one via a
+        bounded ``ThreadPoolExecutor`` (max ``config.MAX_BRAIN_WORKERS``
+        concurrent workers).  Runs until ``self.is_running`` is False.
         Call this method from any entry-point (CLI, server, UI hub).
         """
-        while self.is_running:
-            try:
-                cmd = self.input_queue.get(timeout=1)
-                if cmd:
-                    threading.Thread(
-                        target=self._process_command,
-                        args=(cmd,),
-                        daemon=True,
-                        name="BrainWorker",
-                    ).start()
-            except queue.Empty:
-                pass
-            except KeyboardInterrupt:
-                break
+        import concurrent.futures as _cf
+        with _cf.ThreadPoolExecutor(
+            max_workers=config.MAX_BRAIN_WORKERS,
+            thread_name_prefix="BrainWorker",
+        ) as executor:
+            while self.is_running:
+                try:
+                    cmd = self.input_queue.get(timeout=1)
+                    if cmd:
+                        executor.submit(self._process_command, cmd)
+                except queue.Empty:
+                    pass
+                except KeyboardInterrupt:
+                    break
 
     def run(self) -> None:
         self.start_ears()

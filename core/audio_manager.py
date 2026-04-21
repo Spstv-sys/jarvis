@@ -8,7 +8,7 @@ import tempfile
 import numpy as np
 from colorama import Fore
 
-import edge_tts
+import config
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import pygame
 import speech_recognition as sr
@@ -147,7 +147,7 @@ class AudioManager:
         tmp.close()
 
         async def generate_audio():
-            communicate  = edge_tts.Communicate(clean_text, "uk-UA-OstapNeural", rate="+30%")
+            communicate  = edge_tts.Communicate(clean_text, config.VOICE_MODEL, rate=config.VOICE_RATE)
             audio_buffer = bytearray()
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
@@ -223,7 +223,7 @@ class AudioManager:
                     prediction.get('hey_jarvis',      0),
                     prediction.get('hey_jarvis_v0.1', 0)
                 )
-                if score > 0.35:
+                if score > config.WAKE_WORD_THRESHOLD:
                     self.play_fx("wake")
                     self.current_volume = 0
                     self.speak("Слухаю.")

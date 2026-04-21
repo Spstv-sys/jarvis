@@ -19,6 +19,7 @@ FUZZY_THRESHOLD = 85
 VOICE_MODEL  = "uk-UA-OstapNeural"
 VOICE_RATE   = "+30%"
 WAKE_WORDS   = ["hey_jarvis"]
+WAKE_WORD_THRESHOLD = float(os.getenv("WAKE_WORD_THRESHOLD", "0.35"))
 
 # ==========================================
 # 3. ДОДАТКИ
@@ -146,3 +147,10 @@ VOICE_NAME_MAP = {
 # 9. СЕРВЕР
 # ==========================================
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+
+# ==========================================
+# 10. ПАРАЛЕЛЬНА ОБРОБКА
+# ==========================================
+# Максимальна кількість одночасних BrainWorker-потоків.
+# Обмежує кількість паралельно виконуваних команд.
+MAX_BRAIN_WORKERS = int(os.getenv("JARVIS_MAX_WORKERS", "4"))
