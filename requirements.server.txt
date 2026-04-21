@@ -21,3 +21,4 @@ uvicorn[standard]
 pytest
 edge-tts
 numpy
+keyboard
