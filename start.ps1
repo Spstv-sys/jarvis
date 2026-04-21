@@ -115,7 +115,7 @@ Start-Process powershell -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass
 Write-Host "[3/4] Starting Vite..." -ForegroundColor Cyan
 Start-Process powershell -ArgumentList "-Command", `
     "Set-Location '$projectPath\ui\web'; npx vite" `
-    -WindowStyle Hidden
+    #-WindowStyle Hidden
 
 # Wait for servers to start
 Write-Host "Waiting for servers to start (6 sec)..." -ForegroundColor Yellow
