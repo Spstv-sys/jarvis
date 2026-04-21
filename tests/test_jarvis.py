@@ -4,7 +4,9 @@ Unit-тести для JarvisUltimate та супутніх модулів.
 """
 import queue
 import sqlite3
+import sys
 import tempfile
+import threading
 import os
 from unittest.mock import MagicMock, patch, call
 
@@ -267,3 +269,78 @@ def test_skill_safety_exec_blocked():
     code = "exec(compiled_code)"
     safe, pattern = _check_skill_safety(code)
     assert safe is False
+
+
+# ===========================================================================
+# AudioManager — перевірка наявності мікрофону
+# ===========================================================================
+
+def _make_audio_manager(mock_pa):
+    """Helper: create an AudioManager backed by the provided PyAudio mock."""
+    sys.modules["pyaudio"].PyAudio.return_value = mock_pa
+    stop_event = threading.Event()
+
+    with patch("core.audio_manager.AudioManager._load_oww_model"):
+        from core.audio_manager import AudioManager
+        am = AudioManager(stop_event)
+    return am
+
+
+def test_check_microphone_found():
+    """check_microphone returns True when at least one input device exists."""
+    mock_pa = MagicMock()
+    mock_pa.get_device_count.return_value = 2
+    mock_pa.get_device_info_by_index.side_effect = [
+        {"maxInputChannels": 0, "name": "Speaker"},
+        {"maxInputChannels": 1, "name": "Built-in Mic"},
+    ]
+
+    am = _make_audio_manager(mock_pa)
+
+    assert am.mic_available is True
+
+
+def test_check_microphone_not_found():
+    """check_microphone returns False when no input device exists."""
+    mock_pa = MagicMock()
+    mock_pa.get_device_count.return_value = 1
+    mock_pa.get_device_info_by_index.return_value = {"maxInputChannels": 0, "name": "Speaker"}
+
+    am = _make_audio_manager(mock_pa)
+
+    assert am.mic_available is False
+
+
+def test_check_microphone_no_devices():
+    """check_microphone returns False when PyAudio reports zero devices."""
+    mock_pa = MagicMock()
+    mock_pa.get_device_count.return_value = 0
+
+    am = _make_audio_manager(mock_pa)
+
+    assert am.mic_available is False
+
+
+def test_listen_for_wake_word_returns_false_without_mic():
+    """listen_for_wake_word returns False immediately when mic_available is False."""
+    mock_pa = MagicMock()
+    mock_pa.get_device_count.return_value = 0
+
+    am = _make_audio_manager(mock_pa)
+    am._oww_ready.set()  # unblock any wait
+
+    result = am.listen_for_wake_word()
+
+    assert result is False
+
+
+def test_listen_for_command_returns_none_without_mic():
+    """listen_for_command returns None immediately when mic_available is False."""
+    mock_pa = MagicMock()
+    mock_pa.get_device_count.return_value = 0
+
+    am = _make_audio_manager(mock_pa)
+
+    result = am.listen_for_command()
+
+    assert result is None
