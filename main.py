@@ -220,6 +220,10 @@ class JarvisUltimate:
         self.start_ears()
         self.start_mouth()
 
+        if not self.audio.mic_available:
+            print(f"{Fore.YELLOW}⚠️  Мікрофон не знайдено. Доступний лише текстовий режим.")
+            logger.warning("Запуск без мікрофону — голосовий ввід вимкнено.")
+
         self.audio.play_fx("startup")
         self.enqueue_speech(
             f"Всі системи в нормі. Працюю в режимі мультизадачності. "
