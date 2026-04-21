@@ -191,8 +191,10 @@ class AudioManager:
             logger.error("OWW: модель не завантажилась за 60 секунд.")
             return False
         if self.owwModel is None:
-            logger.error("OWW: модель недоступна.")
-            return False
+            logger.warning("OWW: модель недоступна, розпізнавання без wake-word.")
+            print(f"{Fore.YELLOW}⚠️  Wake-word модель недоступна — перехід до прямого слухання.")
+            time.sleep(1.0)
+            return True
 
         print(f"\n{Fore.CYAN}🎧 Очікування команди...")
         self.current_volume = 0
@@ -232,6 +234,7 @@ class AudioManager:
         except Exception as e:
             logger.error(f"Помилка прослуховування WakeWord: {e}")
             self.current_volume = 0
+            time.sleep(1.0)
             return False
         finally:
             if stream:
