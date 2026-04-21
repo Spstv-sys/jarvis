@@ -27,6 +27,7 @@ class AudioManager:
         "error":   "assets/sounds/error.wav",
     }
     _SECONDS_PER_CHAR = 0.08
+    _FALLBACK_SLEEP = 1.0  # seconds to wait between retries when wake-word model is unavailable
 
     def __init__(self, stop_event: threading.Event, output_callback=None):
         """Initialise audio subsystem.
@@ -193,7 +194,7 @@ class AudioManager:
         if self.owwModel is None:
             logger.warning("OWW: модель недоступна, розпізнавання без wake-word.")
             print(f"{Fore.YELLOW}⚠️  Wake-word модель недоступна — перехід до прямого слухання.")
-            time.sleep(1.0)
+            time.sleep(self._FALLBACK_SLEEP)
             return True
 
         print(f"\n{Fore.CYAN}🎧 Очікування команди...")
@@ -234,7 +235,7 @@ class AudioManager:
         except Exception as e:
             logger.error(f"Помилка прослуховування WakeWord: {e}")
             self.current_volume = 0
-            time.sleep(1.0)
+            time.sleep(self._FALLBACK_SLEEP)
             return False
         finally:
             if stream:
