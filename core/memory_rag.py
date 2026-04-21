@@ -1,4 +1,5 @@
 import os
+import hashlib
 import logging
 import threading
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
@@ -80,8 +81,32 @@ class JarvisSmartMemory:
         splitter = RecursiveCharacterTextSplitter(chunk_size=600, chunk_overlap=100)
         chunks   = splitter.split_documents(documents)
 
+        # Generate deterministic IDs from chunk content to prevent re-indexing duplicates
+        chunk_ids = [
+            hashlib.md5(c.page_content.encode("utf-8")).hexdigest()
+            for c in chunks
+        ]
+
         print(f"🧠 Додавання {len(chunks)} фрагментів у векторну пам'ять...")
-        self.vector_db.add_documents(chunks)
+        try:
+            self.vector_db.add_documents(chunks, ids=chunk_ids)
+        except Exception as e:
+            # Some chunks may already exist — upsert via the underlying collection
+            err_msg = str(e).lower()
+            if "already" in err_msg or "duplicate" in err_msg or "unique" in err_msg:
+                logger.warning("ingest_documents: частина чанків вже проіндексована, пропускаємо дублікати.")
+                # Add only chunks whose IDs are not yet in the collection
+                try:
+                    existing = self.vector_db._collection.get(ids=chunk_ids)
+                    existing_ids = set(existing.get("ids", []))
+                    new_chunks = [c for c, cid in zip(chunks, chunk_ids) if cid not in existing_ids]
+                    new_ids    = [cid for cid in chunk_ids if cid not in existing_ids]
+                    if new_chunks:
+                        self.vector_db.add_documents(new_chunks, ids=new_ids)
+                except Exception as inner_e:
+                    logger.error(f"ingest_documents: повторна спроба не вдалася: {inner_e}")
+            else:
+                raise
         print("✅ Індексація завершена.")
 
     def search(self, query: str, k: int = 3) -> str:
@@ -96,17 +121,27 @@ class JarvisSmartMemory:
             return ""
 
     def memorize(self, text: str, source: str = "dialogue") -> None:
-        """Зберігає факт або репліку у векторну пам'ять."""
+        """Зберігає факт або репліку у векторну пам'ять.
+
+        Використовує MD5-хеш тексту як детермінований ID документа,
+        щоб уникнути повторного збереження дублікатів.
+        """
         if not text or not text.strip():
             return
         if not self._wait_ready(timeout=10.0):
             logger.warning("memorize: векторна БД недоступна.")
             return
         try:
+            doc_id = hashlib.md5(text.encode("utf-8")).hexdigest()
             self.vector_db.add_texts(
                 texts=[text],
-                metadatas=[{"source": source}]
+                metadatas=[{"source": source}],
+                ids=[doc_id],
             )
             logger.info(f"RAG пам'ять оновлена (джерело: {source})")
         except Exception as e:
-            logger.error(f"Помилка збереження у векторну пам'ять: {e}")
+            err_msg = str(e).lower()
+            if "already" in err_msg or "duplicate" in err_msg or "unique" in err_msg:
+                logger.debug(f"memorize: дублікат {doc_id} — пропускаємо.")
+            else:
+                logger.error(f"Помилка збереження у векторну пам'ять: {e}")
