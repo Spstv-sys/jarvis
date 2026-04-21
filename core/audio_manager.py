@@ -9,8 +9,13 @@ import numpy as np
 from colorama import Fore
 
 import edge_tts
-os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
-import pygame
+try:
+    os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
+    import pygame
+    _PYGAME_AVAILABLE = True
+except ImportError:
+    pygame = None
+    _PYGAME_AVAILABLE = False
 import speech_recognition as sr
 import openwakeword
 from openwakeword.model import Model
@@ -50,7 +55,8 @@ class AudioManager:
 
         print(f"{Fore.CYAN}⚙️ Ініціалізація нейронного слуху...")
         try:
-            pygame.mixer.init()
+            if _PYGAME_AVAILABLE:
+                pygame.mixer.init()
             self.recognizer = sr.Recognizer()
             self.audio_interface = pyaudio.PyAudio()
 
@@ -116,6 +122,8 @@ class AudioManager:
             return asyncio.run(coro)
 
     def play_fx(self, sound_type: str) -> None:
+        if not _PYGAME_AVAILABLE:
+            return
         path = self._SOUND_MAP.get(sound_type)
         if not path or not os.path.exists(path):
             return
@@ -158,6 +166,9 @@ class AudioManager:
         with self._speak_lock:
             try:
                 self._run_async(generate_audio())
+                if not _PYGAME_AVAILABLE:
+                    logger.warning("TTS: pygame недоступний, відтворення пропущено.")
+                    return
                 pygame.mixer.music.load(tmp_path)
                 self.stop_event.clear()
                 pygame.mixer.music.play()
