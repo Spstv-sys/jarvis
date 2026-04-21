@@ -1,6 +1,6 @@
 services:
   chromadb:
-    image: chromadb/chroma:latest
+    image: chromadb/chroma:1.5.8
     container_name: jarvis-chromadb
     ports:
       - "8000:8000"
