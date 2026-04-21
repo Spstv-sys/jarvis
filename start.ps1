@@ -9,13 +9,15 @@ docker-compose up -d
 
 # 2. Python backend
 Write-Host "[2/3] Запуск Python бекенду..." -ForegroundColor Cyan
-Start-Process powershell -ArgumentList "-NoExit", "-Command", `
-    "Set-Location '$projectPath'; .venv\Scripts\activate; python server.py"
+Start-Process powershell -ArgumentList "-Command", `
+    "Set-Location '$projectPath'; .venv\Scripts\activate; python server.py" `
+    -WindowStyle Hidden
 
 # 3. Vite dev server
 Write-Host "[3/3] Запуск Vite + Electron UI..." -ForegroundColor Cyan
-Start-Process powershell -ArgumentList "-NoExit", "-Command", `
-    "Set-Location '$projectPath\ui\web'; npx vite"
+Start-Process powershell -ArgumentList "-Command", `
+    "Set-Location '$projectPath\ui\web'; npx vite" `
+    -WindowStyle Hidden
 
 # Чекаємо поки Vite та Python запустяться
 Write-Host "Очікування запуску серверів (6 сек)..." -ForegroundColor Yellow
