@@ -60,6 +60,7 @@ class AudioManager:
         self._speak_lock    = threading.Lock()
         self._noise_calibrated = False
         self._oww_ready     = threading.Event()
+        self.mic_available  = False
 
         print(f"{Fore.CYAN}⚙️ Ініціалізація нейронного слуху...")
         try:
@@ -68,8 +69,7 @@ class AudioManager:
             self.recognizer = sr.Recognizer()
             self.audio_interface = pyaudio.PyAudio()
 
-            if self.audio_interface.get_device_count() == 0:
-                logger.warning("Аудіопристрої вводу не знайдені.")
+            self.mic_available = self.check_microphone()
 
             self.whisper_model = self._load_whisper()
 
@@ -119,6 +119,25 @@ class AudioManager:
             self.owwModel = None
         finally:
             self._oww_ready.set()
+
+    def check_microphone(self) -> bool:
+        """Check whether at least one input (microphone) device is available.
+
+        Returns:
+            ``True`` if an input device is found, ``False`` otherwise.
+        """
+        try:
+            count = self.audio_interface.get_device_count()
+            for i in range(count):
+                info = self.audio_interface.get_device_info_by_index(i)
+                if info.get("maxInputChannels", 0) > 0:
+                    logger.info(f"Мікрофон знайдено: {info.get('name', 'невідомий')}")
+                    return True
+            logger.warning("Мікрофон не знайдено. Голосовий ввід недоступний.")
+            return False
+        except Exception as e:
+            logger.error(f"Помилка перевірки мікрофону: {e}")
+            return False
 
     @staticmethod
     def _load_whisper(force_cpu: bool = False):
@@ -224,6 +243,9 @@ class AudioManager:
                     pass
 
     def listen_for_wake_word(self) -> bool:
+        if not self.mic_available:
+            logger.warning("listen_for_wake_word: мікрофон недоступний.")
+            return False
         # Чекаємо поки модель завантажиться у фоні (максимум 60 сек)
         if not self._oww_ready.wait(timeout=60):
             logger.error("OWW: модель не завантажилась за 60 секунд.")
@@ -354,6 +376,9 @@ class AudioManager:
                 pass
 
     def listen_for_command(self, dictation_mode: bool = False) -> str | None:
+        if not self.mic_available:
+            logger.warning("listen_for_command: мікрофон недоступний.")
+            return None
         if self.whisper_model is None:
             logger.error("Whisper не завантажено.")
             return None
