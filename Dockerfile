@@ -13,7 +13,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY requirements.server.txt .
-RUN pip install --no-cache-dir -r requirements.server.txt
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.server.txt
 
 COPY . .
 
