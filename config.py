@@ -150,7 +150,9 @@ ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",
 # ==========================================
 # 10. WAKE WORD DETECTION
 # ==========================================
-OWW_SENSITIVITY        = float(os.getenv("OWW_SENSITIVITY", "0.35"))   # поріг спрацювання OWW (0.0 - 1.0)
+OWW_SENSITIVITY        = float(os.getenv("OWW_SENSITIVITY", "0.35"))   # застаріло; використовуйте OWW_WAKE_THRESHOLD
 OWW_MODEL_NAME         = os.getenv("OWW_MODEL_NAME", "hey_jarvis_v0.1") # назва моделі OWW
-OWW_VAD_THRESHOLD      = float(os.getenv("OWW_VAD_THRESHOLD", "0.5"))   # VAD поріг для фільтрації шуму
+OWW_VAD_THRESHOLD      = float(os.getenv("OWW_VAD_THRESHOLD", "0.5"))   # Silero VAD поріг (0 = вимкнено)
+OWW_WAKE_THRESHOLD     = float(os.getenv("OWW_WAKE_THRESHOLD", "0.5"))  # поріг спрацювання wake word
+OWW_DEBOUNCE_TIME      = float(os.getenv("OWW_DEBOUNCE_TIME", "2.0"))   # секунди між спрацюваннями
 OWW_FALLBACK_TO_WHISPER = os.getenv("OWW_FALLBACK_TO_WHISPER", "true").lower() == "true"  # fallback на Whisper якщо OWW недоступний
