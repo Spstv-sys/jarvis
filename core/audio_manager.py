@@ -10,6 +10,7 @@ from colorama import Fore
 
 import config
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
+import edge_tts
 import pygame
 import speech_recognition as sr
 import openwakeword
