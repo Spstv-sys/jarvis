@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import re
+import functools
 import threading
 import queue
 import logging
@@ -114,6 +115,7 @@ class JarvisUltimate:
         self.sys_actions = SystemActions(self.audio, self.db)
 
         self.handlers = CommandHandlers(self)
+        # _ROUTE_DEFS is a class-level constant; no per-call list construction needed.
 
         self.skills_dir = os.path.join(os.getcwd(), "skills")
         os.makedirs(self.skills_dir, exist_ok=True)
@@ -254,14 +256,15 @@ class JarvisUltimate:
         return fuzz.partial_ratio(command.lower(), trigger.lower()) >= threshold
 
     @staticmethod
-    def _trigger_in_cmd(trigger: str, cmd: str) -> bool:
-        """Word-boundary–aware trigger matching.
+    @functools.lru_cache(maxsize=256)
+    def _compile_trigger_re(trigger: str) -> re.Pattern:
+        """Compile and cache the word-boundary regex for *trigger*."""
+        return re.compile(r'(?<!\w)' + re.escape(trigger) + r'(?!\w)', re.IGNORECASE)
 
-        Uses ``(?<!\\w)`` / ``(?!\\w)`` to avoid false positives on substrings
-        (e.g. trigger "погода" must not fire on a hypothetical compound word).
-        """
-        pattern = r'(?<!\w)' + re.escape(trigger) + r'(?!\w)'
-        return bool(re.search(pattern, cmd, re.IGNORECASE))
+    @staticmethod
+    def _trigger_in_cmd(trigger: str, cmd: str) -> bool:
+        """Word-boundary–aware trigger matching (uses a compiled-pattern cache)."""
+        return bool(JarvisUltimate._compile_trigger_re(trigger).search(cmd))
 
     # ------------------------------------------------------------------
     # SKILLS
@@ -320,8 +323,40 @@ class JarvisUltimate:
     # ------------------------------------------------------------------
     # COMMAND DISPATCH
     # ------------------------------------------------------------------
+    # Precompiled regex for detecting a filename in a command.
+    _FILE_RE = re.compile(r'\b[A-Za-z0-9_\-]+\.(py|txt|json|md|js|html|css|cpp|c|cs)\b')
+
+    # Route table: (trigger-key, handler-method-name).  Built once in __init__
+    # as self._routes so we pay the list construction cost only one time.
+    _ROUTE_DEFS: list[tuple[str, str]] = [
+        ("update_knowledge", "cmd_update_knowledge"),
+        ("activate_skill",   "cmd_activate_skill"),
+        ("learn_skill",      "cmd_learn_skill"),
+        ("weather_exact",    "cmd_scrape_weather"),
+        ("weather",          "cmd_weather"),
+        ("youtube_play",     "cmd_play_youtube"),
+        ("youtube_search",   "cmd_search_youtube"),
+        ("news",             "cmd_scrape_news"),
+        ("finance",          "cmd_finance"),
+        ("switch_ai",        "cmd_switch_ai"),
+        ("personality",      "cmd_personality"),
+        ("check_ai",         "cmd_check_ai"),
+        ("timer",            "cmd_timer"),
+        ("hardware",         "cmd_hardware_control"),
+        ("apps_os",          "cmd_apps_and_os"),
+        ("vision",           "cmd_vision"),
+        ("code_assistant",   "cmd_code_assistant"),
+        ("calendar",         "cmd_calendar"),
+        ("dictation",        "cmd_dictation"),
+        ("system_exit",      "cmd_system_exit"),
+        ("stop_voice",       "cmd_stop_voice"),
+        ("memorize",         "cmd_memorize"),
+        ("web_search",       "cmd_web_search"),
+        ("find_file",        "cmd_find_file"),
+    ]
+
     def handle_ai_chat(self, cmd: str) -> str:
-        if re.search(r'\b[A-Za-z0-9_\-]+\.(py|txt|json|md|js|html|css|cpp|c|cs)\b', cmd):
+        if self._FILE_RE.search(cmd):
             return self.handlers.cmd_code_assistant(cmd)
         return self.handlers.cmd_ai_chat(cmd)
 
@@ -339,39 +374,12 @@ class JarvisUltimate:
                     logger.error(f"Помилка навички {skill['name']}: {e}")
                 return "CONTINUE"
 
-        ROUTES = [
-            ("update_knowledge", self.handlers.cmd_update_knowledge),
-            ("activate_skill",   self.handlers.cmd_activate_skill),
-            ("learn_skill",      self.handlers.cmd_learn_skill),
-            ("weather_exact",    self.handlers.cmd_scrape_weather),
-            ("weather",          self.handlers.cmd_weather),
-            ("youtube_play",     self.handlers.cmd_play_youtube),
-            ("youtube_search",   self.handlers.cmd_search_youtube),
-            ("news",             self.handlers.cmd_scrape_news),
-            ("finance",          self.handlers.cmd_finance),
-            ("switch_ai",        self.handlers.cmd_switch_ai),
-            ("personality",      self.handlers.cmd_personality),
-            ("check_ai",         self.handlers.cmd_check_ai),
-            ("timer",            self.handlers.cmd_timer),
-            ("hardware",         self.handlers.cmd_hardware_control),
-            ("apps_os",          self.handlers.cmd_apps_and_os),
-            ("vision",           self.handlers.cmd_vision),
-            ("code_assistant",   self.handlers.cmd_code_assistant),
-            ("calendar",         self.handlers.cmd_calendar),
-            ("dictation",        self.handlers.cmd_dictation),
-            ("system_exit",      self.handlers.cmd_system_exit),
-            ("stop_voice",       self.handlers.cmd_stop_voice),
-            ("memorize",         self.handlers.cmd_memorize),
-            ("web_search",       self.handlers.cmd_web_search),
-            ("find_file",        self.handlers.cmd_find_file),
-        ]
-
-        for key, handler in ROUTES:
+        for key, meth_name in self._ROUTE_DEFS:
             triggers = config.TRIGGERS.get(key, [])
             for trigger in sorted(triggers, key=len, reverse=True):
                 if self._trigger_in_cmd(trigger, cmd):
                     logger.info(f"execute_command: маршрут '{key}' для команди {cmd!r}")
-                    return handler(cmd)
+                    return getattr(self.handlers, meth_name)(cmd)
 
         logger.info(f"execute_command: маршрут не знайдено, передаю в handle_ai_chat: {cmd!r}")
         return self.handle_ai_chat(cmd)

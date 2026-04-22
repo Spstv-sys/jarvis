@@ -4,6 +4,7 @@ CommandHandlers — all cmd_* methods extracted from JarvisUltimate.
 Receives the JarvisUltimate instance as ``jarvis`` for dependency access.
 This keeps JarvisUltimate as a thin orchestrator (init + routing + lifecycle).
 """
+import ast
 import os
 import re
 import time
@@ -32,22 +33,67 @@ except ImportError:
 
 
 # ---------------------------------------------------------------------------
-# Forbidden patterns for LLM-generated skill code (Problem 7)
+# Forbidden patterns for LLM-generated skill code (Fix 1 + Fix 6)
 # ---------------------------------------------------------------------------
 _FORBIDDEN_SKILL_PATTERNS = [
-    r'\bos\.system\b',
-    r'\bsubprocess\b',
-    r'\b__import__\b',
-    r'\beval\b',
-    r'\bexec\b',
+    re.compile(r'\bos\.system\b'),
+    re.compile(r'\bsubprocess\b'),
+    re.compile(r'\b__import__\b'),
+    re.compile(r'\beval\b'),
+    re.compile(r'\bexec\b'),
 ]
+
+# Forbidden module names detected via AST import analysis.
+_FORBIDDEN_IMPORTS_AST: frozenset[str] = frozenset({
+    "subprocess", "ctypes", "importlib", "builtins",
+})
+
+# Forbidden bare function calls detected via AST (ast.Name nodes).
+_FORBIDDEN_CALLS_AST: frozenset[str] = frozenset({
+    "eval", "exec", "__import__", "compile",
+})
+
+# Forbidden attribute names detected via AST (ast.Attribute nodes).
+_FORBIDDEN_ATTRS_AST: frozenset[str] = frozenset({
+    "system", "popen", "call", "run", "check_output", "Popen",
+})
 
 
 def _check_skill_safety(code: str) -> tuple[bool, str]:
-    """Return (True, '') if code is safe, (False, matched_pattern) otherwise."""
+    """Return (True, '') if code is safe, (False, reason) otherwise.
+
+    Two-layer check:
+    1. Regex scan — fast pre-filter for obvious forbidden patterns.
+    2. AST walk — catches obfuscated imports and attribute calls.
+    """
+    # Layer 1: regex
     for pattern in _FORBIDDEN_SKILL_PATTERNS:
-        if re.search(pattern, code):
-            return False, pattern
+        if pattern.search(code):
+            return False, pattern.pattern
+
+    # Layer 2: AST
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as exc:
+        return False, f"SyntaxError: {exc}"
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                top = alias.name.partition(".")[0]
+                if top in _FORBIDDEN_IMPORTS_AST:
+                    return False, f"forbidden import: {top}"
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                top = node.module.partition(".")[0]
+                if top in _FORBIDDEN_IMPORTS_AST:
+                    return False, f"forbidden import: {top}"
+        elif isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name) and node.func.id in _FORBIDDEN_CALLS_AST:
+                return False, f"forbidden call: {node.func.id}"
+            if isinstance(node.func, ast.Attribute) and node.func.attr in _FORBIDDEN_ATTRS_AST:
+                return False, f"forbidden attribute call: {node.func.attr}"
+
     return True, ""
 
 

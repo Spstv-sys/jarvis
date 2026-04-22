@@ -1,4 +1,5 @@
 import os
+import json
 import logging
 import threading
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
@@ -7,6 +8,9 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 
 logger = logging.getLogger(__name__)
+
+# Name of the file used to persist ingestion state between runs.
+_INGEST_STATE_FILE = ".ingest_state.json"
 
 
 class JarvisSmartMemory:
@@ -21,8 +25,36 @@ class JarvisSmartMemory:
         self.vector_db  = None
         self._ready     = threading.Event()  # ✅ Сигнал готовності
 
+        # Mapping of filepath → st_mtime_ns for already-ingested documents.
+        self._ingest_state: dict[str, int] = self._load_ingest_state()
+
         # ✅ Завантаження у фоні — не блокує старт застосунку
         threading.Thread(target=self._init_embeddings, daemon=True).start()
+
+    # ------------------------------------------------------------------
+    # Ingest-state persistence (Fix 5)
+    # ------------------------------------------------------------------
+    def _state_path(self) -> str:
+        return os.path.join(self.db_path, _INGEST_STATE_FILE)
+
+    def _load_ingest_state(self) -> dict[str, int]:
+        path = self._state_path()
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+            except Exception as e:
+                logger.warning(f"Не вдалося завантажити стан індексації: {e}")
+        return {}
+
+    def _save_ingest_state(self) -> None:
+        try:
+            with open(self._state_path(), "w", encoding="utf-8") as f:
+                json.dump(self._ingest_state, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warning(f"Не вдалося зберегти стан індексації: {e}")
 
     def _init_embeddings(self) -> None:
         try:
@@ -50,7 +82,7 @@ class JarvisSmartMemory:
         return self.vector_db is not None
 
     def ingest_documents(self) -> None:
-        """Сканує папку з документами та індексує нові у векторну базу."""
+        """Сканує папку з документами та індексує лише нові/змінені файли."""
         if not self._wait_ready():
             logger.error("ingest_documents: векторна БД недоступна.")
             return
@@ -62,19 +94,35 @@ class JarvisSmartMemory:
         }
 
         documents = []
+        updated_state: dict[str, int] = {}
+
         for filename in os.listdir(self.docs_dir):
             ext = os.path.splitext(filename)[1].lower()
             if ext not in LOADERS:
                 continue
             filepath = os.path.join(self.docs_dir, filename)
             try:
+                mtime_ns = os.stat(filepath).st_mtime_ns
+            except OSError:
+                continue
+
+            # Skip files that have not changed since last ingest.
+            if self._ingest_state.get(filepath) == mtime_ns:
+                updated_state[filepath] = mtime_ns
+                continue
+
+            try:
                 loader = LOADERS[ext](filepath)
                 documents.extend(loader.load())
+                updated_state[filepath] = mtime_ns
             except Exception as e:
                 logger.error(f"Помилка завантаження файлу {filename}: {e}")
 
         if not documents:
-            print("⚠️ Папка зі знаннями порожня або файли не вдалося прочитати.")
+            if updated_state:
+                print("✅ Всі файли вже проіндексовані, нових документів немає.")
+            else:
+                print("⚠️ Папка зі знаннями порожня або файли не вдалося прочитати.")
             return
 
         splitter = RecursiveCharacterTextSplitter(chunk_size=600, chunk_overlap=100)
@@ -82,6 +130,10 @@ class JarvisSmartMemory:
 
         print(f"🧠 Додавання {len(chunks)} фрагментів у векторну пам'ять...")
         self.vector_db.add_documents(chunks)
+
+        # Persist the new ingest state (merge previously-known + newly-processed).
+        self._ingest_state.update(updated_state)
+        self._save_ingest_state()
         print("✅ Індексація завершена.")
 
     def search(self, query: str, k: int = 3) -> str:

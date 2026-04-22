@@ -48,23 +48,28 @@ _RATE_LIMIT      = int(os.getenv("JARVIS_RATE_LIMIT", "30"))   # requests per wi
 _RATE_WINDOW     = 60                                            # seconds
 _rate_counters: dict[str, list[float]] = defaultdict(list)
 _rate_lock = threading.Lock()
+_last_prune: float = 0.0   # monotonic time of the last global prune
 
 
 def _check_rate_limit(client_ip: str) -> bool:
     """Return True if the request is within the rate limit, False otherwise.
 
-    Also prunes expired entries for *all* tracked IPs to prevent unbounded
-    memory growth when many unique addresses hit the server over time.
+    Expired entries for all IPs are pruned at most once per ``_RATE_WINDOW``
+    seconds to prevent unbounded memory growth while avoiding an O(n) scan on
+    every single request.
     """
+    global _last_prune
     now = time.monotonic()
     with _rate_lock:
-        # Prune expired entries for all IPs to prevent memory leak
-        stale_ips = [
-            ip for ip, ts_list in _rate_counters.items()
-            if not any(now - t < _RATE_WINDOW for t in ts_list)
-        ]
-        for ip in stale_ips:
-            del _rate_counters[ip]
+        # Prune stale IPs periodically rather than on every request.
+        if now - _last_prune >= _RATE_WINDOW:
+            stale_ips = [
+                ip for ip, ts_list in _rate_counters.items()
+                if not any(now - t < _RATE_WINDOW for t in ts_list)
+            ]
+            for ip in stale_ips:
+                del _rate_counters[ip]
+            _last_prune = now
 
         recent = [t for t in _rate_counters[client_ip] if now - t < _RATE_WINDOW]
         if len(recent) >= _RATE_LIMIT:

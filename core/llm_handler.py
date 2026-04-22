@@ -4,7 +4,7 @@ import logging
 import hashlib
 import threading
 import concurrent.futures
-from collections import deque
+from collections import OrderedDict, deque
 from colorama import Fore
 
 import config
@@ -29,8 +29,10 @@ class LLMHandler:
         self.personality_mode  = "стандартний"
         self.active_provider   = "deepseek"
         self.short_term_memory = deque(maxlen=self.MAX_SHORT_TERM)
-        self._response_cache: dict = {}
+        self._response_cache: OrderedDict[str, str] = OrderedDict()
         self._cache_lock       = threading.Lock()
+        # Shared executor — avoids the cost of creating a new pool on every chat.
+        self._thread_pool      = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 
         print(f"{Fore.CYAN}⚙️ Ініціалізація Мовних Моделей (LLM)...")
         self._providers: dict[str, BaseLLMProvider] = {}
@@ -134,14 +136,20 @@ class LLMHandler:
     def _get_cached(self, prompt: str) -> str | None:
         key = hashlib.md5(prompt.encode()).hexdigest()
         with self._cache_lock:
-            return self._response_cache.get(key)
+            if key not in self._response_cache:
+                return None
+            self._response_cache.move_to_end(key)
+            return self._response_cache[key]
 
     def _set_cached(self, prompt: str, response: str) -> None:
         key = hashlib.md5(prompt.encode()).hexdigest()
         with self._cache_lock:
+            if key in self._response_cache:
+                self._response_cache.move_to_end(key)
+                self._response_cache[key] = response
+                return
             if len(self._response_cache) >= self.CACHE_MAX:
-                oldest = next(iter(self._response_cache))
-                del self._response_cache[oldest]
+                self._response_cache.popitem(last=False)  # evict LRU (oldest)
             self._response_cache[key] = response
 
     # -------------------------------------------------------------------------
@@ -220,11 +228,10 @@ class LLMHandler:
         self.short_term_memory.append(f"User: {user_text}")
 
         print(f"{Fore.YELLOW}🔍 Пошук контексту (паралельно)...")
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-            future_context = pool.submit(self.brain.search, user_text, 10)
-            future_facts   = pool.submit(self.db.get_recent_facts, 5)
-            knowledge_context = future_context.result()
-            recent_facts      = future_facts.result()
+        future_context = self._thread_pool.submit(self.brain.search, user_text, 10)
+        future_facts   = self._thread_pool.submit(self.db.get_recent_facts, 5)
+        knowledge_context = future_context.result()
+        recent_facts      = future_facts.result()
 
         if not knowledge_context.strip():
             knowledge_context = "У пам'яті немає прямої інформації щодо цього запиту."
