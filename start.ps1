@@ -2,7 +2,7 @@
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
-$projectPath = "D:\Projects\Jv3\jarvis_project"
+$projectPath = $PSScriptRoot
 Set-Location $projectPath
 
 # 0. Перевірка та запуск Docker Desktop
