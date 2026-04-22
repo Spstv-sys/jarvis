@@ -116,7 +116,8 @@ class SystemActions:
                     "WOT_PATH", r"E:\Games\World_of_Tanks_EU\WorldOfTanks.exe"
                 )
                 if os.path.exists(path):
-                    os.startfile(path)
+                    if sys.platform == 'win32':
+                        os.startfile(path)
                     self.audio.speak("Запускаю гру.")
                 else:
                     self.audio.speak("Шлях до гри не знайдено. Перевірте конфігурацію.")
@@ -128,7 +129,8 @@ class SystemActions:
                     letter = match.group(1).upper()
                     drive_path = f"{letter}:\\"
                     if os.path.exists(drive_path):
-                        os.startfile(drive_path)
+                        if sys.platform == 'win32':
+                            os.startfile(drive_path)
                         self.audio.speak(f"Диск {letter} відкрито.")
                     else:
                         self.audio.speak(f"Диск {letter} не знайдено.")
