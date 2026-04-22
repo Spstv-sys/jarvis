@@ -1,6 +1,7 @@
 import sqlite3
 import logging
 import threading
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -8,7 +9,7 @@ logger = logging.getLogger(__name__)
 # РЕЛЯЦІЙНА БД (SQLite)
 # ─────────────────────────────────────────────
 class JarvisDatabase:
-    MAX_FACTS = 50
+    MAX_FACTS = 500
 
     def __init__(self, db_path="jarvis_core.db"):
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
@@ -40,6 +41,13 @@ class JarvisDatabase:
                     id         INTEGER PRIMARY KEY AUTOINCREMENT,
                     added_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     fact_text  TEXT
+                );
+                CREATE TABLE IF NOT EXISTS contacts (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name            TEXT NOT NULL,
+                    name_normalized TEXT NOT NULL UNIQUE,
+                    phone           TEXT NOT NULL,
+                    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
             self.conn.commit()
@@ -96,6 +104,102 @@ class JarvisDatabase:
             (limit,)
         )
         return [row["fact_text"] for row in cur.fetchall()]
+
+    def search_facts(self, query: str, limit: int = 10) -> list:
+        """Повертає релевантні факти за ключовими словами запиту."""
+        if not query or not query.strip():
+            return []
+
+        raw_tokens = [t for t in re.findall(r"\w+", query.lower()) if len(t) >= 3]
+        if not raw_tokens:
+            return self.get_recent_facts(limit=limit)
+
+        def _variants(token: str) -> set[str]:
+            variants = {token}
+            suffixes = ("ами", "ями", "ові", "еві", "ого", "ому", "ою", "ею", "ій", "ий", "ий", "а", "я", "и", "і", "у", "ю", "о")
+            for suffix in suffixes:
+                if token.endswith(suffix) and len(token) - len(suffix) >= 3:
+                    variants.add(token[:-len(suffix)])
+            return variants
+
+        token_variants = [_variants(t) for t in raw_tokens[:8]]
+        cur = self._execute(
+            "SELECT id, fact_text FROM facts ORDER BY id DESC LIMIT 300"
+        )
+        rows = cur.fetchall()
+
+        scored: list[tuple[int, int, str]] = []
+        for row in rows:
+            text = row["fact_text"]
+            text_l = text.lower()
+            score = 0
+            for variants in token_variants:
+                if any(v in text_l for v in variants):
+                    score += 1
+            if score > 0:
+                scored.append((score, row["id"], text))
+
+        scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        return [item[2] for item in scored[:limit]]
+
+    # --- Contacts ---
+    def upsert_contact(self, name: str, phone: str) -> None:
+        if not name or not phone:
+            return
+        normalized_name = re.sub(r"\s+", " ", name.strip().lower())
+        self._execute(
+            """
+            INSERT INTO contacts (name, name_normalized, phone)
+            VALUES (?, ?, ?)
+            ON CONFLICT(name_normalized)
+            DO UPDATE SET
+                name = excluded.name,
+                phone = excluded.phone,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (name.strip(), normalized_name, phone.strip()),
+        )
+
+    def search_contacts(self, query: str, limit: int = 3) -> list:
+        if not query or not query.strip():
+            return []
+
+        raw_tokens = [t for t in re.findall(r"\w+", query.lower()) if len(t) >= 3]
+        if not raw_tokens:
+            cur = self._execute(
+                "SELECT name, phone FROM contacts ORDER BY updated_at DESC LIMIT ?",
+                (limit,),
+            )
+            rows = cur.fetchall()
+            return [f"Контакт: {row['name']}. Номер телефону: {row['phone']}." for row in rows]
+
+        def _variants(token: str) -> set[str]:
+            variants = {token}
+            suffixes = ("ами", "ями", "ові", "еві", "ого", "ому", "ою", "ею", "ій", "а", "я", "и", "і", "у", "ю", "о")
+            for suffix in suffixes:
+                if token.endswith(suffix) and len(token) - len(suffix) >= 3:
+                    variants.add(token[:-len(suffix)])
+            return variants
+
+        variants = set()
+        for token in raw_tokens[:8]:
+            variants.update(_variants(token))
+
+        like_parts = []
+        params: list[str | int] = []
+        for token in variants:
+            like_parts.append("name_normalized LIKE ?")
+            params.append(f"%{token}%")
+        params.append(limit)
+
+        sql = (
+            "SELECT name, phone FROM contacts "
+            f"WHERE {' OR '.join(like_parts)} "
+            "ORDER BY updated_at DESC LIMIT ?"
+        )
+        cur = self._execute(sql, tuple(params))
+        rows = cur.fetchall()
+        return [f"Контакт: {row['name']}. Номер телефону: {row['phone']}." for row in rows]
 
     # --- Cleanup ---
     def close(self) -> None:

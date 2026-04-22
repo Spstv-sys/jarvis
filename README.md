@@ -46,7 +46,7 @@ docker-compose -f docker-compose.server.yml up -d
 ### Завантажити LLM модель (тільки перший раз)
 
 ```bash
-docker exec -it jarvis-ollama ollama pull llama3
+docker exec -it jarvis-ollama ollama pull qwen2.5:3b
 ```
 
 ### Зупинка
@@ -62,4 +62,4 @@ docker-compose -f docker-compose.server.yml down
 | Jarvis API | http://localhost:8001 |
 | WebSocket | ws://localhost:8001/ws |
 | ChromaDB | http://localhost:8000 |
-| Ollama | http://localhost:11434 |
+| Ollama | http://localhost:11534 |

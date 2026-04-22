@@ -144,7 +144,7 @@ export default function App() {
       </div>
 
       {/* СТАТУС-БАР */}
-      <StatusBar status={status} uptime={uptime} />
+      <StatusBar status={status} uptime={uptime} connected={connected} />
     </div>
   )
 }

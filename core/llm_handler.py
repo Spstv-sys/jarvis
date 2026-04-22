@@ -54,14 +54,58 @@ class LLMHandler:
         else:
             logger.error("Не знайдено GEMINI_API_KEY")
 
+        ollama_provider, _, ollama_notice = self._build_ollama_provider()
+        if ollama_provider is not None:
+            self._providers["ollama"] = ollama_provider
+            logger.info("Ollama підключено.")
+            if ollama_notice:
+                logger.warning(ollama_notice)
+        else:
+            logger.warning(ollama_notice or "Ollama недоступна — пропускаємо ініціалізацію.")
+
+    @staticmethod
+    def _normalize_ollama_model_name(model_name: str) -> str:
+        return model_name[:-7] if model_name.endswith(":latest") else model_name
+
+    def _build_ollama_provider(self) -> tuple[BaseLLMProvider | None, str | None, str | None]:
         try:
             import requests as _req
-            r = _req.get("http://localhost:11434", timeout=2)
-            if r.ok:
-                self._providers["ollama"] = OllamaProvider()
-                logger.info("Ollama підключено.")
-        except Exception:
-            logger.warning("Ollama недоступна — пропускаємо ініціалізацію.")
+
+            requested_model = os.getenv("OLLAMA_MODEL", "qwen2.5:3b").strip() or "qwen2.5:3b"
+            ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11534").rstrip("/")
+            api_root = ollama_host[:-3] if ollama_host.endswith("/v1") else ollama_host
+            tags_url = f"{api_root}/api/tags"
+            response = _req.get(tags_url, timeout=2)
+            response.raise_for_status()
+
+            models = response.json().get("models", []) or []
+            model_names = [item.get("name") for item in models if item.get("name")]
+            if not model_names:
+                return None, None, (
+                    f"Ollama доступна, але моделей немає. Завантажте модель командою: "
+                    f"docker exec -it jarvis-ollama ollama pull {requested_model}"
+                )
+
+            normalized_requested = self._normalize_ollama_model_name(requested_model)
+            selected_model = next(
+                (
+                    name for name in model_names
+                    if name == requested_model or self._normalize_ollama_model_name(name) == normalized_requested
+                ),
+                None,
+            )
+
+            notice = None
+            if selected_model is None:
+                selected_model = model_names[0]
+                notice = (
+                    f"Модель Ollama '{requested_model}' не знайдена. "
+                    f"Використовую '{selected_model}'."
+                )
+
+            return OllamaProvider(model=selected_model), selected_model, notice
+        except Exception as exc:
+            return None, None, f"Ollama недоступна — {exc}"
 
     def _get_active_provider(self) -> BaseLLMProvider | None:
         return self._providers.get(self.active_provider)
@@ -114,11 +158,20 @@ class LLMHandler:
             else:
                 self.audio.speak("Gemini недоступний. Перевірте GEMINI_API_KEY у файлі .env.")
         elif "ollama" in cmd_lower or "олама" in cmd_lower or "локальн" in cmd_lower:
-            if "ollama" in self._providers:
+            ollama_provider, selected_model, notice = self._build_ollama_provider()
+            if ollama_provider is not None:
+                self._providers["ollama"] = ollama_provider
                 self.active_provider = "ollama"
-                self.audio.speak("Перемикаю нейромережу на локальну базу.")
+                if notice:
+                    logger.warning(notice)
+                    self.audio.speak(f"Перемикаю на локальну Олама. {notice}")
+                else:
+                    self.audio.speak(
+                        f"Перемикаю нейромережу на локальну базу. Активна модель: {selected_model}."
+                    )
             else:
-                self.audio.speak("Локальна Олама недоступна. Сервер не запущено.")
+                self._providers.pop("ollama", None)
+                self.audio.speak(notice or "Локальна Олама недоступна. Сервер не запущено.")
         else:
             self.audio.speak("Невідомий провайдер. Доступні: DeepSeek, Gemini, Олама.")
 
@@ -222,9 +275,13 @@ class LLMHandler:
         print(f"{Fore.YELLOW}🔍 Пошук контексту (паралельно)...")
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
             future_context = pool.submit(self.brain.search, user_text, 10)
-            future_facts   = pool.submit(self.db.get_recent_facts, 5)
+            future_facts   = pool.submit(self.db.get_recent_facts, 15)
+            future_relevant_facts = pool.submit(self.db.search_facts, user_text, 8)
+            future_contacts = pool.submit(self.db.search_contacts, user_text, 3)
             knowledge_context = future_context.result()
             recent_facts      = future_facts.result()
+            relevant_facts    = future_relevant_facts.result()
+            matched_contacts  = future_contacts.result()
 
         if not knowledge_context.strip():
             knowledge_context = "У пам'яті немає прямої інформації щодо цього запиту."
@@ -238,6 +295,8 @@ class LLMHandler:
         full_prompt = (
             f"Системна роль: {role_prompt}\n\n"
             f"КОНТЕКСТ З ПАМ'ЯТІ:\n\"\"\"{knowledge_context}\"\"\"\n\n"
+            f"КОНТАКТИ: {matched_contacts}\n"
+            f"РЕЛЕВАНТНІ ФАКТИ: {relevant_facts}\n"
             f"ДОДАТКОВІ ФАКТИ: {recent_facts}\n"
             f"ІСТОРІЯ ДІАЛОГУ:\n{history}\n\n"
             f"ЗАПИТ КОРИСТУВАЧА: {user_text}\n"

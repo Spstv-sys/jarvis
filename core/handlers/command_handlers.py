@@ -534,15 +534,73 @@ class CommandHandlers:
     # ==================================================================
     # MEMORY
     # ==================================================================
+    @staticmethod
+    def _normalize_phone(raw_phone: str) -> str:
+        digits = re.sub(r"\D", "", raw_phone)
+        if raw_phone.strip().startswith("+") and digits:
+            return f"+{digits}"
+        if len(digits) == 10 and digits.startswith("0"):
+            return f"+38{digits}"
+        if len(digits) == 12 and digits.startswith("380"):
+            return f"+{digits}"
+        return raw_phone.strip()
+
+    @staticmethod
+    def _extract_phone_fact_text(fact: str) -> str | None:
+        phone_match = re.search(r"(\+?\d[\d\s\-\(\)]{7,}\d)", fact)
+        if not phone_match:
+            return None
+
+        raw_phone = phone_match.group(1)
+        normalized_phone = CommandHandlers._normalize_phone(raw_phone)
+
+        owner_part = fact.replace(raw_phone, " ")
+        owner_part = re.sub(
+            r"\b(номер|номером|телефон|телефону|контакт|це|є|мій|моєї|моє|запам['’]?ятай|запамятай)\b",
+            " ",
+            owner_part,
+            flags=re.IGNORECASE,
+        )
+        owner_part = re.sub(r"\s+", " ", owner_part).strip(" .,:;!?")
+
+        if owner_part:
+            return f"Контакт: {owner_part}. Номер телефону: {normalized_phone}."
+        return f"Номер телефону: {normalized_phone}."
+
+    @staticmethod
+    def _extract_contact_phone_pair(canonical_fact: str) -> tuple[str, str] | None:
+        match = re.search(
+            r"Контакт:\s*(.+?)\.\s*Номер телефону:\s*(\+?\d+)\.",
+            canonical_fact,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return None
+        name = match.group(1).strip()
+        phone = match.group(2).strip()
+        if not name or not phone:
+            return None
+        return name, phone
+
     def cmd_memorize(self, cmd: str) -> str:
         logger.info(f"cmd_memorize: {cmd!r}")
-        fact = re.sub(r"\bщо\b", "", cmd.replace("запам'ятай", ""), flags=re.IGNORECASE).strip()
+        fact = re.sub(r"\b(запам['’]?ятай|запамятай|що)\b", "", cmd, flags=re.IGNORECASE).strip(" .,:;!?")
         if not fact:
             self.audio.speak("Уточніть, що саме запам'ятати.")
             return "CONTINUE"
-        self.db.add_fact(fact)
-        self.brain.memorize(fact, source="user_fact")
-        self.audio.speak("Інформацію завантажено у бази даних.")
+
+        canonical_fact = self._extract_phone_fact_text(fact) or fact
+
+        self.db.add_fact(canonical_fact)
+        contact_pair = self._extract_contact_phone_pair(canonical_fact)
+        if contact_pair:
+            self.db.upsert_contact(contact_pair[0], contact_pair[1])
+        self.brain.memorize(canonical_fact, source="user_fact")
+
+        if canonical_fact != fact:
+            self.audio.speak("Зберіг контакт і номер телефону у пам'ять.")
+        else:
+            self.audio.speak("Інформацію завантажено у бази даних.")
         return "CONTINUE"
 
     # ==================================================================

@@ -19,11 +19,13 @@ export function useJarvis() {
 
     socket.onopen = () => {
       setConnected(true)
+      setStatus(prev => (prev && prev.toUpperCase().includes('ERROR')) ? prev : 'CONNECTED')
       clearTimeout(reconnectTimer.current)
     }
 
     socket.onclose = () => {
       setConnected(false)
+      setStatus(prev => (prev && prev.toUpperCase().includes('ERROR')) ? prev : 'OFFLINE')
       reconnectTimer.current = setTimeout(connect, 2000)
     }
 
@@ -66,7 +68,12 @@ export function useJarvis() {
     connect()
     fetch('/status')
       .then(r => r.json())
-      .then(d => { if (d.provider) setProvider(d.provider.toUpperCase()) })
+      .then(d => {
+        if (d.provider) setProvider(d.provider.toUpperCase())
+        if (typeof d.ready === 'boolean') {
+          setStatus(d.ready ? 'SYSTEM ONLINE' : 'LOADING')
+        }
+      })
       .catch(() => {})
 
     return () => {

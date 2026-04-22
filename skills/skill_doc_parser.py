@@ -1,7 +1,11 @@
 import requests
 from bs4 import BeautifulSoup
-from ddgs import DDGS
 import logging
+
+try:
+    from ddgs import DDGS
+except ImportError:
+    from duckduckgo_search import DDGS
 
 # Слова-тригери для активації парсера
 TRIGGERS = [

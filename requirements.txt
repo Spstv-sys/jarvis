@@ -4,6 +4,7 @@ langchain-community
 langchain-chroma
 langchain-huggingface
 langchain-text-splitters
+sentence-transformers
 
 # --- ШІ Провайдери ---
 google-genai

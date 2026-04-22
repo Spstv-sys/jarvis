@@ -144,6 +144,28 @@ def test_db_fact_limit_enforced(db_instance):
     assert first_fact not in facts
 
 
+def test_db_search_facts_ranks_contact_match_first(db_instance):
+    db_instance.add_fact("Контакт: мама. Номер телефону: +380501112233.")
+    db_instance.add_fact("Контакт: тато. Номер телефону: +380671234567.")
+
+    result = db_instance.search_facts("номер телефону мами", limit=5)
+
+    assert result
+    assert "мама" in result[0].lower()
+
+
+def test_db_contacts_upsert_and_search(db_instance):
+    db_instance.upsert_contact("мама", "+380501112233")
+    db_instance.upsert_contact("тато", "+380671234567")
+    db_instance.upsert_contact("мама", "+380991112233")
+
+    result = db_instance.search_contacts("який номер мами", limit=3)
+
+    assert result
+    assert "мама" in result[0].lower()
+    assert "+380991112233" in result[0]
+
+
 # ===========================================================================
 # LLMHandler — provider switching & cache (Problem 10)
 # ===========================================================================

@@ -1,7 +1,9 @@
+import os
 import logging
 from typing import Iterator
 
 from openai import OpenAI
+import requests
 
 from .base import BaseLLMProvider
 
@@ -9,16 +11,61 @@ logger = logging.getLogger(__name__)
 
 
 class OllamaProvider(BaseLLMProvider):
-    _DEFAULT_MODEL = "qwen2.5:latest"
-    _BASE_URL = "http://localhost:11434/v1"
+    _DEFAULT_MODEL = "qwen2.5:3b"
 
-    def __init__(self, model: str = _DEFAULT_MODEL) -> None:
+    def __init__(self, model: str | None = None) -> None:
+        ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11534").rstrip("/")
+        self._api_root = ollama_host[:-3] if ollama_host.endswith("/v1") else ollama_host
+        base_url = ollama_host if ollama_host.endswith("/v1") else f"{ollama_host}/v1"
         self._client = OpenAI(
-            base_url=self._BASE_URL,
+            base_url=base_url,
             api_key="ollama",
             timeout=60,
         )
-        self._model = model
+        self._model = model or os.getenv("OLLAMA_MODEL", self._DEFAULT_MODEL)
+
+    @staticmethod
+    def _normalize_model_name(model_name: str) -> str:
+        return model_name[:-7] if model_name.endswith(":latest") else model_name
+
+    def _list_local_models(self) -> list[str]:
+        try:
+            response = requests.get(f"{self._api_root}/api/tags", timeout=2)
+            response.raise_for_status()
+            models = response.json().get("models", []) or []
+            return [item.get("name") for item in models if item.get("name")]
+        except Exception:
+            return []
+
+    def _recover_missing_model(self) -> bool:
+        model_names = self._list_local_models()
+        if not model_names:
+            return False
+
+        requested_normalized = self._normalize_model_name(self._model)
+        selected_model = next(
+            (
+                name for name in model_names
+                if name == self._model or self._normalize_model_name(name) == requested_normalized
+            ),
+            model_names[0],
+        )
+
+        if selected_model == self._model:
+            return False
+
+        logger.warning(
+            "Ollama model '%s' not available. Falling back to '%s'.",
+            self._model,
+            selected_model,
+        )
+        self._model = selected_model
+        return True
+
+    @staticmethod
+    def _is_missing_model_error(exc: Exception) -> bool:
+        text = str(exc).lower()
+        return "model" in text and "not found" in text
 
     @property
     def name(self) -> str:
@@ -34,24 +81,32 @@ class OllamaProvider(BaseLLMProvider):
         return self._client
 
     def generate(self, prompt: str) -> str | None:
-        try:
-            res = self._client.chat.completions.create(
-                model=self._model,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            return res.choices[0].message.content
-        except Exception as e:
-            logger.error(f"Ollama generate error: {e}")
-            return None
+        for attempt in range(2):
+            try:
+                res = self._client.chat.completions.create(
+                    model=self._model,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                return res.choices[0].message.content
+            except Exception as e:
+                if attempt == 0 and self._is_missing_model_error(e) and self._recover_missing_model():
+                    continue
+                logger.error(f"Ollama generate error: {e}")
+                return None
 
     def stream(self, prompt: str) -> Iterator[str]:
-        try:
-            s = self._client.chat.completions.create(
-                model=self._model,
-                messages=[{"role": "user", "content": prompt}],
-                stream=True,
-            )
-            for chunk in s:
-                yield chunk.choices[0].delta.content or ""
-        except Exception as e:
-            logger.error(f"Ollama stream error: {e}")
+        for attempt in range(2):
+            try:
+                s = self._client.chat.completions.create(
+                    model=self._model,
+                    messages=[{"role": "user", "content": prompt}],
+                    stream=True,
+                )
+                for chunk in s:
+                    yield chunk.choices[0].delta.content or ""
+                return
+            except Exception as e:
+                if attempt == 0 and self._is_missing_model_error(e) and self._recover_missing_model():
+                    continue
+                logger.error(f"Ollama stream error: {e}")
+                return

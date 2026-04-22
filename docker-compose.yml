@@ -11,8 +11,9 @@ services:
   ollama:
     image: ollama/ollama:latest
     container_name: jarvis-ollama
+    gpus: all
     ports:
-      - "11434:11434"
+      - "${OLLAMA_PORT:-11534}:11434"
     volumes:
       - ollama_data:/root/.ollama
     restart: unless-stopped
