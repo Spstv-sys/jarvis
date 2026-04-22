@@ -9,7 +9,7 @@ Set-Location $projectPath
 $dockerRunning = Get-Process "Docker Desktop" -ErrorAction SilentlyContinue
 if (-not $dockerRunning) {
     Write-Host "🐳 Запуск Docker Desktop..." -ForegroundColor Yellow
-    Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"
+    Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe" -WindowStyle Hidden
 
     Write-Host "Очікування Docker Engine..." -ForegroundColor Yellow
     while ($true) {
