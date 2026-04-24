@@ -61,6 +61,7 @@ class AudioManager:
         self._speak_lock    = threading.Lock()
         self._noise_calibrated = False
         self._oww_ready     = threading.Event()
+        self._oww_unavailable_logged = False
         self.mic_available  = False
 
         print(f"{Fore.CYAN}⚙️ Ініціалізація нейронного слуху...")
@@ -105,33 +106,40 @@ class AudioManager:
             model_name    = getattr(config, "OWW_MODEL_NAME",    "hey_jarvis")
             vad_threshold = getattr(config, "OWW_VAD_THRESHOLD", 0.5)
 
-            # Use the OWW API to locate bundled models — avoids hard-coded paths
-            # that differ between platforms / install methods.
-            pretrained_paths = openwakeword.get_pretrained_model_paths("onnx")
-            model_stem = model_name.replace(" ", "_")
-            model_exists = any(
-                os.path.splitext(os.path.basename(p))[0] == model_stem
-                for p in pretrained_paths
-            )
-
-            if not model_exists:
+            model_path = self._resolve_oww_model_path(model_name)
+            if model_path is None:
                 logger.info(f"OWW: модель '{model_name}' не знайдена, завантажую з мережі...")
                 # download_models() does not accept a model filter; it fetches all
                 # pre-trained ONNX models (a one-time ~50 MB download).
                 openwakeword.utils.download_models()
+
+                model_path = self._resolve_oww_model_path(model_name)
+                if model_path is None:
+                    raise FileNotFoundError(f"OWW model '{model_name}' not found after download")
             else:
                 logger.info(f"OWW: модель '{model_name}' вже є, завантаження пропущено.")
             self.owwModel = OWWModel(
-                wakeword_models=[model_name],
+                wakeword_models=[model_path],
                 inference_framework="onnx",
                 vad_threshold=vad_threshold,
             )
+            self._oww_unavailable_logged = False
             logger.info(f"OWW: модель '{model_name}' готова (VAD threshold={vad_threshold}).")
         except Exception as e:
             logger.error(f"OWW: помилка завантаження моделі: {e}")
             self.owwModel = None
         finally:
             self._oww_ready.set()
+
+    @staticmethod
+    def _resolve_oww_model_path(model_name: str):
+        model_stem = model_name.replace(" ", "_")
+        for path in openwakeword.get_pretrained_model_paths("onnx"):
+            basename = os.path.basename(path)
+            stem, ext = os.path.splitext(basename)
+            if ext.lower() == ".onnx" and stem == model_stem:
+                return path
+        return None
 
     def check_microphone(self) -> bool:
         """Check whether at least one input (microphone) device is available.
@@ -266,7 +274,9 @@ class AudioManager:
                 return self._whisper_wake_word_fallback()
             return False
         if self.owwModel is None:
-            logger.warning("OWW: модель недоступна, перехід на Whisper-fallback.")
+            if not self._oww_unavailable_logged:
+                logger.warning("OWW: модель недоступна, перехід на Whisper-fallback.")
+                self._oww_unavailable_logged = True
             if config.OWW_FALLBACK_TO_WHISPER:
                 return self._whisper_wake_word_fallback()
             return False

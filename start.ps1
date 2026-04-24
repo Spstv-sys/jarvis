@@ -31,6 +31,45 @@ function Get-HttpStatusCode {
     }
 }
 
+function Stop-JarvisBackendProcesses {
+    param(
+        [Parameter(Mandatory = $true)][string]$VenvPython,
+        [int]$Port = 8001
+    )
+
+    $processIds = New-Object System.Collections.Generic.HashSet[int]
+
+    $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty OwningProcess -Unique
+    foreach ($listenerPid in @($listener)) {
+        [void]$processIds.Add([int]$listenerPid)
+    }
+
+    $backendProcesses = Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.CommandLine -and $_.CommandLine -match 'server\.py' -and $_.CommandLine -like "*$VenvPython*"
+        }
+    foreach ($process in @($backendProcesses)) {
+        [void]$processIds.Add([int]$process.ProcessId)
+    }
+
+    foreach ($processId in $processIds) {
+        if ($processId -eq $PID) { continue }
+
+        $process = Get-CimInstance Win32_Process -Filter "ProcessId = $processId" -ErrorAction SilentlyContinue
+        if (-not $process -or -not $process.CommandLine -or $process.CommandLine -notmatch 'server\.py') {
+            continue
+        }
+
+        try {
+            Stop-Process -Id $processId -Force -ErrorAction Stop
+            Write-Host "Stopped existing backend process PID $processId" -ForegroundColor Yellow
+        } catch {
+            Write-Host "Could not stop backend process PID ${processId}: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+    }
+}
+
 # 0. Check and start Docker Desktop
 $dockerRunning = Get-Process "Docker Desktop" -ErrorAction SilentlyContinue
 if (-not $dockerRunning) {
@@ -107,6 +146,7 @@ if (-not (Test-Path $venvPython)) {
     Write-Host "Python venv not found: $venvPython" -ForegroundColor Red
     exit 1
 }
+Stop-JarvisBackendProcesses -VenvPython $venvPython -Port 8001
 Start-Process powershell -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", `
     "Set-Location '$projectPath'; `$env:PYTHONIOENCODING='utf-8'; `$env:PYTHONUTF8='1'; & '$venvPython' server.py" `
     -WindowStyle Hidden

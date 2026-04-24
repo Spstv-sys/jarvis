@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+import config
 from rapidfuzz import process
 
 TRIGGERS = ["запусти скрипт", "виконай програму", "відкрий інструмент"]
@@ -12,7 +13,7 @@ def execute(cmd, jarvis):
         search_term = search_term.replace(t, "")
     search_term = search_term.strip().lower()
 
-    code_dir = os.path.join(os.getenv("JARVIS_DRIVE", "D:\\Jarvis_Sorted"), "Code")
+    code_dir = os.path.join(config.SORTING_DRIVE, "Code")
     
     if not os.path.exists(code_dir):
         return "Папка зі скриптами ще не створена."

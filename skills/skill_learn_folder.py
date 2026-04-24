@@ -1,5 +1,6 @@
 import os
 import re
+import config
 from PIL import Image
 
 # Блоки імпорту бібліотек
@@ -16,7 +17,7 @@ except ImportError: docx = None
 
 # Словник ваших папок (як у попередній навичці)
 MY_FOLDERS = {
-    "секретн": os.getenv("JARVIS_SECRET_DIR", r"D:\Sicrets"),
+    "секретн": config.SECRET_DIR,
 }
 
 TRIGGERS = ["вивчи папку", "прочитай всі файли", "завантаж папку", "засвой папку"]

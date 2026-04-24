@@ -1,9 +1,10 @@
 import os
+import config
 
 # 1. КЛЮЧІ ДОСТУПУ (Шорткати)
 # Залишено лише одну папку. Пошук іде за коренем "секретн"
 MY_FOLDERS = {
-    "секретн": os.getenv("JARVIS_SECRET_DIR", r"D:\Sicrets")
+    "секретн": config.SECRET_DIR
 }
 
 # Тригери для запуску навички

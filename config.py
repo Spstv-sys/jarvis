@@ -3,13 +3,24 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def _resolve_dir(env_name: str, default_path: str, *fallback_paths: str) -> str:
+    configured_path = os.getenv(env_name)
+    candidates = [configured_path, default_path, *fallback_paths]
+    for path in candidates:
+        if path and os.path.exists(path):
+            return path
+    return configured_path or default_path
+
 # ==========================================
 # 1. ШЛЯХИ ТА ДИРЕКТОРІЇ
 # ==========================================
 BASE_DIR       = os.path.dirname(os.path.abspath(__file__))
 SKILLS_DIR     = os.path.join(BASE_DIR, "skills")
 KNOWLEDGE_DIR  = os.path.join(BASE_DIR, "knowledge_base")
-SORTING_DRIVE  = os.getenv("JARVIS_DRIVE", "D:\\Jarvis_Sorted")
+SORTING_DRIVE  = _resolve_dir("JARVIS_DRIVE", "D:\\Jarvis_Sorted", "H:\\Jarvis_Sorted")
+SECRET_DIR     = _resolve_dir("JARVIS_SECRET_DIR", "D:\\Sicrets", "H:\\Sicrets")
+DOCUMENTS_DIR  = _resolve_dir("JARVIS_DOCUMENTS_DIR", "D:\\Documents")
 
 # ==========================================
 # 2. СИСТЕМНІ НАЛАШТУВАННЯ

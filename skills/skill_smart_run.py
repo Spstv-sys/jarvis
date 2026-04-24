@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+import config
 
 # Робимо тригери максимально природними
 TRIGGERS = [
@@ -23,7 +24,7 @@ def execute(cmd, jarvis):
 
     # 1. Знаходимо всі доступні скрипти
     code_dir = os.path.realpath(
-        os.path.join(os.getenv("JARVIS_DRIVE", "D:\\Jarvis_Sorted"), "Code")
+        os.path.join(config.SORTING_DRIVE, "Code")
     )
     if not os.path.exists(code_dir):
         return "Папка зі скриптами ще не створена."

@@ -1,6 +1,7 @@
 import os
 import re
 import time
+import config
 
 TRIGGERS = [
     "напиши код",
@@ -72,7 +73,7 @@ def execute(cmd, jarvis):
     if not safe:
         return f"Згенерований код містить небезпечний виклик ({bad_pattern}) та не збережено."
 
-    target_dir = os.path.realpath(os.getenv("JARVIS_DRIVE", "D:\\Jarvis_Sorted"))
+    target_dir = os.path.realpath(config.SORTING_DRIVE)
     os.makedirs(target_dir, exist_ok=True)
     filepath = os.path.join(target_dir, filename)
     # Ensure the resolved path stays within target_dir

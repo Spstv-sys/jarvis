@@ -2,6 +2,7 @@ import os
 import py_compile
 import tempfile
 import logging
+import config
 from rapidfuzz import process
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,7 @@ def _check_imports(source):
     return issues
 
 def execute(cmd, jarvis):
-    base_dir = os.getenv("JARVIS_DRIVE", "D:\\Jarvis_Sorted")
+    base_dir = config.SORTING_DRIVE
 
     if not os.path.exists(base_dir):
         return f"Папка {base_dir} не знайдена. Перевірте підключення диска."

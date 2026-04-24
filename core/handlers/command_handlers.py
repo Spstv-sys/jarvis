@@ -474,7 +474,7 @@ class CommandHandlers:
             return "CONTINUE"
         search_dirs = [
             os.getcwd(),
-            os.path.join(os.getenv("JARVIS_DRIVE", r"D:\Jarvis_Sorted"), "Code"),
+            os.path.join(config.SORTING_DRIVE, "Code"),
         ]
         file_path = None
         for d in search_dirs:

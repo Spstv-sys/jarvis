@@ -2,6 +2,7 @@ import os
 import re
 from datetime import datetime
 from colorama import Fore
+import config
 
 # 1. СЛОВА-ТРИГЕРИ (якщо Джарвіс чує це, він запускає цей плагін)
 TRIGGERS = ["згенеруй тест кейси для", "напиши тести для", "протестуй функціонал", "зроби чек-лист для", "чек-лист для"]
@@ -40,7 +41,7 @@ def execute(cmd, jarvis):
         filename = f"QA_Report_{safe_target}_{datetime.now().strftime('%H%M%S')}.md"
         
         # Визначаємо шлях збереження (Твоя робоча папка Documents)
-        save_dir = os.getenv("JARVIS_DOCUMENTS_DIR", "D:\\Documents")
+        save_dir = config.DOCUMENTS_DIR
         os.makedirs(save_dir, exist_ok=True)
         
         filepath = os.path.join(save_dir, filename)
