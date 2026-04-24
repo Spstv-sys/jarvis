@@ -9,7 +9,7 @@ load_dotenv()
 BASE_DIR       = os.path.dirname(os.path.abspath(__file__))
 SKILLS_DIR     = os.path.join(BASE_DIR, "skills")
 KNOWLEDGE_DIR  = os.path.join(BASE_DIR, "knowledge_base")
-SORTING_DRIVE  = os.getenv("JARVIS_DRIVE", "H:\\Jarvis_Sorted")
+SORTING_DRIVE  = os.getenv("JARVIS_DRIVE", "D:\\Jarvis_Sorted")
 
 # ==========================================
 # 2. СИСТЕМНІ НАЛАШТУВАННЯ

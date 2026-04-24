@@ -41,7 +41,7 @@ def _find_script(search_term, scripts_map):
     return None
 
 def execute(cmd, jarvis):
-    base_dir = os.getenv("JARVIS_DRIVE", "H:\\Jarvis_Sorted")
+    base_dir = os.getenv("JARVIS_DRIVE", "D:\\Jarvis_Sorted")
 
     if not os.path.exists(base_dir):
         return f"Папка {base_dir} не знайдена. Перевірте підключення диска."

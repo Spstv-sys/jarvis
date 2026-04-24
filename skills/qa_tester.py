@@ -40,8 +40,7 @@ def execute(cmd, jarvis):
         filename = f"QA_Report_{safe_target}_{datetime.now().strftime('%H%M%S')}.md"
         
         # Визначаємо шлях збереження (Твоя робоча папка Documents)
-        target_drive = os.getenv("JARVIS_DRIVE", "H:\\Jarvis_Sorted")
-        save_dir = os.path.join(target_drive, "Documents")
+        save_dir = os.getenv("JARVIS_DOCUMENTS_DIR", "D:\\Documents")
         os.makedirs(save_dir, exist_ok=True)
         
         filepath = os.path.join(save_dir, filename)
