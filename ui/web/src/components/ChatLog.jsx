@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 
 const ACCENT = '#00ffcc'
 
-function useTypewriter(text, speed = 18) {
+function useTypewriter(text, speed = 28) {
   const [displayed, setDisplayed] = useState('')
   const [done, setDone] = useState(false)
 
@@ -12,7 +12,11 @@ function useTypewriter(text, speed = 18) {
     if (!text) return
     let i = 0
     const id = setInterval(() => {
-      i++
+      const chunk = Math.min(
+        8,
+        Math.max(2, Math.ceil(text.length / 28))
+      )
+      i += chunk
       setDisplayed(text.slice(0, i))
       if (i >= text.length) {
         clearInterval(id)
@@ -25,7 +29,7 @@ function useTypewriter(text, speed = 18) {
   return { displayed, done }
 }
 
-function Message({ msg, animate }) {
+const Message = memo(function Message({ msg, animate }) {
   const isJarvis = msg.sender !== 'Степан'
   const { displayed, done } = useTypewriter(
     isJarvis && animate ? msg.text : null,
@@ -37,53 +41,39 @@ function Message({ msg, animate }) {
     : msg.text
 
   return (
-    <div style={{ marginBottom: 6, lineHeight: 1.5 }}>
-      <span style={{ color: '#2a2a2a', fontSize: 11 }}>[{msg.time}] </span>
-      <span style={{ color: isJarvis ? ACCENT : '#cccccc', fontWeight: isJarvis ? 'bold' : 'normal' }}>
+    <div className="chat-message">
+      <span className="chat-message__time">[{msg.time}] </span>
+      <span className={`chat-message__speaker${isJarvis ? ' is-jarvis' : ' is-user'}`}>
         {isJarvis ? 'JARVIS ›' : 'USER   ›'}{' '}
       </span>
-      <span style={{ color: isJarvis ? '#e0fff8' : '#cccccc' }}>
+      <span className={`chat-message__text${isJarvis ? ' is-jarvis' : ' is-user'}`}>
         {text}
         {isJarvis && animate && !done && (
-          <span style={{
-            display:         'inline-block',
-            width:           8,
-            height:          13,
-            background:      ACCENT,
-            marginLeft:      2,
-            verticalAlign:   'middle',
-            animation:       'blink 0.7s step-end infinite',
-          }} />
+          <span className="chat-cursor" />
         )}
       </span>
     </div>
   )
-}
+})
 
 export default function ChatLog({ messages }) {
   const bottomRef = useRef(null)
+  const prefersReducedMotion = useRef(
+    typeof window !== 'undefined' && window.matchMedia
+      ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      : false
+  )
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    bottomRef.current?.scrollIntoView({
+      behavior: prefersReducedMotion.current ? 'auto' : 'smooth',
+    })
   }, [messages])
 
   return (
-    <div style={{
-      flex:         1,
-      overflowY:    'auto',
-      padding:      '12px 16px',
-      fontFamily:   'Consolas, monospace',
-      fontSize:     13,
-      background:   '#070707',
-      border:       '1px solid #1a1a1a',
-      borderRadius: 8,
-    }}>
-      <style>{`
-        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
-      `}</style>
-
+    <div className="hud-panel chat-log">
       {messages.length === 0 && (
-        <div style={{ color: '#222', textAlign: 'center', marginTop: 40 }}>
+        <div className="chat-log__empty">
           — очікування команди —
         </div>
       )}

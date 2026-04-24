@@ -10,8 +10,10 @@ import psutil
 import uvicorn
 from collections import defaultdict
 
+import re
+from pathlib import Path
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -95,14 +97,17 @@ class ConnectionManager:
 
     async def broadcast(self, data: dict) -> None:
         async with self._lock:
-            dead = []
-            for client in self._clients:
-                try:
-                    await client.send_json(data)
-                except Exception as e:
-                    logger.warning(f"Помилка надсилання клієнту {client.client}: {e}")
-                    dead.append(client)
-            self._clients = [c for c in self._clients if c not in dead]
+            if not self._clients:
+                return
+            # Паралельний send + видалення мертвих за один прохід.
+            results = await asyncio.gather(
+                *(c.send_json(data) for c in self._clients),
+                return_exceptions=True,
+            )
+            self._clients = [
+                c for c, r in zip(self._clients, results)
+                if not isinstance(r, Exception)
+            ]
 
 manager = ConnectionManager()
 
@@ -132,19 +137,30 @@ async def event_broadcaster() -> None:
 
 async def metrics_broadcaster() -> None:
     """Метрики системи — раз на секунду"""
-    while True:
-        if not jarvis_ready.is_set():
-            await asyncio.sleep(1.0)
-            continue
-        battery = psutil.sensors_battery()
-        vol     = getattr(jarvis.audio, "current_volume", 0) if jarvis else 0
+    # Кеш cpu_percent: перший виклик interval=None повертає 0.0,
+    # подальші — середнє від останнього виклику. Оскільки ми створюємо
+    # броадкаст раз на секунду, це OK. Просто виносимо виклики всіх сенсорів
+    # у thread pool, щоб не блокувати event loop.
+    loop = asyncio.get_running_loop()
 
-        await manager.broadcast({
-            "type":    "metrics",
+    def _gather_metrics():
+        battery = psutil.sensors_battery()
+        return {
             "cpu":     psutil.cpu_percent(interval=None),
             "ram":     psutil.virtual_memory().percent,
             "battery": battery.percent if battery else None,
             "plugged": battery.power_plugged if battery else None,
+        }
+
+    while True:
+        if not jarvis_ready.is_set():
+            await asyncio.sleep(1.0)
+            continue
+        metrics = await loop.run_in_executor(None, _gather_metrics)
+        vol = getattr(jarvis.audio, "current_volume", 0) if jarvis else 0
+        await manager.broadcast({
+            "type":    "metrics",
+            **metrics,
             "volume":  float(vol),
         })
         await asyncio.sleep(1.0)
@@ -234,6 +250,99 @@ async def get_status():
     ready    = jarvis_ready.is_set()
     provider = jarvis.llm.active_provider if jarvis else "—"
     return {"ready": ready, "provider": provider}
+
+# ---------------------------------------------------------------------------
+# File upload
+# ---------------------------------------------------------------------------
+_UPLOAD_DIR = Path(__file__).parent / "uploads"
+_UPLOAD_DIR.mkdir(exist_ok=True)
+_MAX_UPLOAD_SIZE = int(os.getenv("JARVIS_MAX_UPLOAD_MB", "25")) * 1024 * 1024
+_ALLOWED_EXTS = {
+    ".pdf", ".docx", ".txt", ".md", ".csv", ".py", ".json", ".log",
+    ".jpg", ".jpeg", ".png", ".bmp",
+}
+
+def _safe_filename(name: str) -> str:
+    """Strip directory components and dangerous chars from a user-supplied filename."""
+    name = os.path.basename(name or "").strip()
+    # Replace anything that isn't alnum/dot/dash/underscore with _
+    name = re.sub(r"[^A-Za-z0-9._\-\u0400-\u04FF]+", "_", name)
+    # Disallow leading dots or empty
+    name = name.lstrip(".") or "file"
+    return name[:120]
+
+@app.post("/upload")
+async def upload_file(
+    request: Request,
+    file: UploadFile = File(...),
+    prompt: str = Form(""),
+):
+    client_ip = request.client.host if request.client else None
+    if client_ip is None:
+        raise HTTPException(status_code=400, detail="Bad Request")
+
+    if _JARVIS_API_KEY:
+        api_key = request.headers.get("X-API-Key", "")
+        if api_key != _JARVIS_API_KEY:
+            logger.warning(f"REST /upload: неправильний API-ключ від {client_ip}")
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+    if not _check_rate_limit(client_ip):
+        logger.warning(f"REST /upload: ліміт запитів вичерпано для {client_ip}")
+        raise HTTPException(status_code=429, detail="Too Many Requests")
+
+    if not jarvis_ready.is_set():
+        return {"status": "not_ready"}
+
+    safe_name = _safe_filename(file.filename or "upload.bin")
+    ext = os.path.splitext(safe_name)[1].lower()
+    if ext not in _ALLOWED_EXTS:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Формат {ext or '?'} не підтримується. Дозволено: " + ", ".join(sorted(_ALLOWED_EXTS)),
+        )
+
+    # Streaming write with size cap to prevent memory exhaustion / DoS
+    timestamp = int(time.time())
+    final_name = f"{timestamp}_{safe_name}"
+    dest = _UPLOAD_DIR / final_name
+    written = 0
+    try:
+        with dest.open("wb") as f:
+            while chunk := await file.read(1024 * 1024):  # 1 MB chunks
+                written += len(chunk)
+                if written > _MAX_UPLOAD_SIZE:
+                    f.close()
+                    dest.unlink(missing_ok=True)
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Файл перевищує ліміт {_MAX_UPLOAD_SIZE // (1024*1024)} МБ",
+                    )
+                f.write(chunk)
+    finally:
+        await file.close()
+
+    abs_path = str(dest.resolve())
+    user_prompt = (prompt or "").strip()
+    if user_prompt:
+        # User asked something specific about the file — pass both prompt and path
+        command = f"{user_prompt} {abs_path}"
+        chat_echo = f"📎 {safe_name} — {user_prompt}"
+    else:
+        # Default: ingest into RAG memory via existing skill_learn_doc trigger
+        command = f"вивчи файл {abs_path}"
+        chat_echo = f"📎 {safe_name} (додаю в пам'ять)"
+
+    # Echo to chat so user sees what was attached
+    event_queue.put({"sender": "USER", "text": chat_echo})
+    jarvis.input_queue.put(command)
+    logger.info(f"REST /upload: {safe_name} ({written} bytes) → {command!r}")
+    return {
+        "status":   "ok",
+        "filename": safe_name,
+        "size":     written,
+        "path":     abs_path,
+    }
 
 # ---------------------------------------------------------------------------
 # WebSocket

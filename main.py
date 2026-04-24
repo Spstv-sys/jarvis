@@ -96,10 +96,34 @@ class JarvisUltimate:
         self.is_running      = True
         self.ui_callback     = None
 
-        self.db      = JarvisDatabase()
-        self.brain   = JarvisSmartMemory(docs_dir="knowledge_base")
-        self.scraper = JarvisScraper()
-        self.youtube = JarvisYouTube()
+        # Parallelise heavy I/O initialisation (SQLite, ChromaDB, embeddings,
+        # network sessions). Each component is independent, so this saves 3-5s
+        # of startup time vs. sequential init.
+        init_results: dict = {}
+        init_errors:  dict = {}
+
+        def _safe_init(name, factory):
+            try:
+                init_results[name] = factory()
+            except Exception as exc:
+                init_errors[name] = exc
+                logger.error(f"Init '{name}' failed: {exc}")
+
+        init_threads = [
+            threading.Thread(target=_safe_init, args=("db", JarvisDatabase), daemon=True),
+            threading.Thread(target=_safe_init, args=("brain", lambda: JarvisSmartMemory(docs_dir="knowledge_base")), daemon=True),
+            threading.Thread(target=_safe_init, args=("scraper", JarvisScraper), daemon=True),
+            threading.Thread(target=_safe_init, args=("youtube", JarvisYouTube), daemon=True),
+        ]
+        for t in init_threads:
+            t.start()
+        for t in init_threads:
+            t.join(timeout=30)
+
+        self.db      = init_results.get("db")      or JarvisDatabase()
+        self.brain   = init_results.get("brain")   or JarvisSmartMemory(docs_dir="knowledge_base")
+        self.scraper = init_results.get("scraper") or JarvisScraper()
+        self.youtube = init_results.get("youtube") or JarvisYouTube()
 
         self.stop_event = threading.Event()
         keyboard.add_hotkey('esc', self.stop_event.set)

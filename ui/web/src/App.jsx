@@ -7,6 +7,11 @@ import StatusBar      from './components/StatusBar'
 import TitleBar       from './components/TitleBar'
 
 const ACCENT = '#00ffcc'
+const THEMES = [
+  { id: 'classic', label: 'Classic' },
+  { id: 'ice', label: 'Ice' },
+  { id: 'ember', label: 'Ember' },
+]
 
 function useUptime() {
   const [uptime, setUptime] = useState('00:00:00')
@@ -25,9 +30,59 @@ function useUptime() {
 }
 
 export default function App() {
-  const { messages, metrics, status, provider, connected, sendCommand, clearMessages } = useJarvis()
+  const { messages, metrics, status, provider, connected, sendCommand, clearMessages, uploadFile } = useJarvis()
   const [input, setInput] = useState('')
+  const [uploading, setUploading] = useState(false)
+  const [bootVisible, setBootVisible] = useState(true)
+  const [voiceActive, setVoiceActive] = useState(false)
+  const [assistantSpeaking, setAssistantSpeaking] = useState(false)
+  const [theme, setTheme] = useState(() => window.localStorage.getItem('jarvis-hud-theme') || 'classic')
+  const fileInputRef = useRef(null)
+  const voiceHoldRef = useRef(null)
+  const speakingHoldRef = useRef(null)
   const uptime = useUptime()
+
+  const normalizedStatus = (status || 'LOADING').toUpperCase()
+  const statusTone = normalizedStatus.includes('ERROR')
+    ? 'error'
+    : (!connected || normalizedStatus.includes('OFFLINE'))
+        ? 'offline'
+        : normalizedStatus.includes('ONLINE') || normalizedStatus.includes('CONNECTED')
+            ? 'online'
+            : 'loading'
+
+  useEffect(() => {
+    const id = window.setTimeout(() => setBootVisible(false), 1850)
+    return () => window.clearTimeout(id)
+  }, [])
+
+  useEffect(() => {
+    window.localStorage.setItem('jarvis-hud-theme', theme)
+  }, [theme])
+
+  useEffect(() => {
+    if ((metrics.volume ?? 0) > 7) {
+      setVoiceActive(true)
+      window.clearTimeout(voiceHoldRef.current)
+      voiceHoldRef.current = window.setTimeout(() => setVoiceActive(false), 220)
+    }
+    return () => {
+      window.clearTimeout(voiceHoldRef.current)
+    }
+  }, [metrics.volume])
+
+  useEffect(() => {
+    const latest = messages[messages.length - 1]
+    if (!latest || latest.sender === 'Степан') return
+    setAssistantSpeaking(true)
+    window.clearTimeout(speakingHoldRef.current)
+    const duration = Math.min(2200, Math.max(800, latest.text.length * 22))
+    speakingHoldRef.current = window.setTimeout(() => setAssistantSpeaking(false), duration)
+
+    return () => {
+      window.clearTimeout(speakingHoldRef.current)
+    }
+  }, [messages])
 
   const handleSend = () => {
     if (!input.trim()) return
@@ -35,99 +90,115 @@ export default function App() {
     setInput('')
   }
 
+  const handleAttachClick = () => {
+    if (uploading) return
+    fileInputRef.current?.click()
+  }
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = '' // reset so same file can be selected again
+    if (!file) return
+    setUploading(true)
+    try {
+      // Use current input as optional prompt about the file
+      await uploadFile(file, input.trim())
+      setInput('')
+    } finally {
+      setUploading(false)
+    }
+  }
+
   return (
-    <div style={{
-      display:       'flex',
-      flexDirection: 'column',
-      height:        '100vh',
-      background:    '#050505',
-      color:         ACCENT,
-      fontFamily:    'Consolas, monospace',
-      overflow:      'hidden',
-    }}>
+    <div className={[
+      'hud-app',
+      'hud-shell',
+      voiceActive ? 'hud-shell--listening' : '',
+      assistantSpeaking ? 'hud-shell--speaking' : '',
+      `hud-shell--${statusTone}`,
+    ].filter(Boolean).join(' ')} data-theme={theme}>
+
+      <div className={`hud-startup ${bootVisible ? '' : 'hud-startup--hidden'}`}>
+        <div className="hud-startup__scan" />
+        <div className="hud-startup__core">
+          <div className="hud-startup__eyebrow">BOOT SEQUENCE</div>
+          <div className="hud-startup__title">J.A.R.V.I.S.</div>
+          <div className="hud-startup__subline">Initializing voice matrix and system telemetry</div>
+          <div className="hud-startup__progress">
+            <span className="hud-startup__progress-bar" />
+          </div>
+        </div>
+      </div>
 
       {/* TITLE BAR */}
       <TitleBar />
 
       {/* ШАПКА */}
-      <div style={{
-        height:          55,
-        background:      '#111',
-        borderBottom:    '1px solid #1a1a1a',
-        display:         'flex',
-        alignItems:      'center',
-        justifyContent:  'space-between',
-        padding:         '0 24px',
-        flexShrink:      0,
-        WebkitAppRegion: 'drag',
-      }}>
-        <span style={{ fontSize: 18, fontWeight: 'bold', letterSpacing: 2 }}>
-          ⚡ J.A.R.V.I.S. SYSTEM INTERFACE
-        </span>
-        <span style={{ color: '#333', fontSize: 11, WebkitAppRegion: 'no-drag' }}>
-          UPTIME: {uptime}
-        </span>
+      <div className="hud-topbar hud-app-topbar hud-reveal">
+        <div className="hud-topbar__identity">
+          <span className="hud-kicker">SYSTEM CONSOLE</span>
+          <span className="hud-title">J.A.R.V.I.S. INTERFACE</span>
+          <div className="hud-session-indicator">
+            <span className="hud-meta-label">SESSION UPTIME</span>
+            <span className="hud-session-value">{uptime}</span>
+          </div>
+        </div>
+        <div className="hud-topbar__controls hud-no-drag">
+          <div className="hud-theme-switcher" aria-label="HUD theme switcher">
+            {THEMES.map(option => (
+              <button
+                key={option.id}
+                type="button"
+                className={`hud-theme-chip${theme === option.id ? ' is-active' : ''}`}
+                onClick={() => setTheme(option.id)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* WAVEFORM */}
-      <div style={{
-        height:       80,
-        margin:       '10px 16px 0',
-        background:   '#080808',
-        border:       '1px solid #1a1a1a',
-        borderRadius: 8,
-        flexShrink:   0,
-      }}>
+      <div className="hud-panel waveform-frame hud-reveal hud-reveal-delay-1">
         <Waveform volume={metrics.volume} />
       </div>
 
       {/* ОСНОВНИЙ КОНТЕНТ */}
-      <div style={{
-        flex:     1,
-        display:  'flex',
-        gap:      12,
-        padding:  '10px 16px',
-        overflow: 'hidden',
-      }}>
+      <div className="hud-main hud-reveal hud-reveal-delay-2">
         {/* ЧАТ */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8, overflow: 'hidden' }}>
+        <div className="hud-chat-column">
           <ChatLog messages={messages} />
 
           {/* ВВІД */}
-          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+          <div className="composer-row">
             <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.docx,.txt,.md,.csv,.py,.json,.log,.jpg,.jpeg,.png,.bmp"
+              style={{ display: 'none' }}
+              onChange={handleFileChange}
+            />
+            <button
+              className="action-button hud-control-button hud-attach-button"
+              onClick={handleAttachClick}
+              disabled={uploading}
+              title={uploading ? 'Завантаження...' : 'Прикріпити файл (PDF, DOCX, TXT, зображення)'}
+              style={{
+                color:        uploading ? '#555' : ACCENT,
+                cursor:       uploading ? 'wait' : 'pointer',
+              }}
+            >{uploading ? '⧗' : '📎'}</button>
+            <input
+              className="hud-input hud-command-input"
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSend()}
               placeholder="Введіть команду..."
-              style={{
-                flex:         1,
-                background:   '#0d0d0d',
-                border:       '1px solid #222',
-                color:        ACCENT,
-                fontFamily:   'Consolas',
-                fontSize:     13,
-                padding:      '10px 14px',
-                borderRadius: 6,
-                outline:      'none',
-              }}
-              onFocus={e => e.target.style.borderColor = ACCENT}
-              onBlur={e  => e.target.style.borderColor = '#222'}
             />
             <button
+              className="action-button hud-control-button hud-send-button"
               onClick={handleSend}
-              style={{
-                background:   '#111',
-                border:       '1px solid #222',
-                color:        ACCENT,
-                fontFamily:   'Consolas',
-                fontSize:     16,
-                padding:      '0 18px',
-                borderRadius: 6,
-                cursor:       'pointer',
-              }}
-              onMouseEnter={e => e.target.style.background = '#003d33'}
-              onMouseLeave={e => e.target.style.background = '#111'}
             >▶</button>
           </div>
         </div>
@@ -138,13 +209,20 @@ export default function App() {
           status={status}
           provider={provider}
           connected={connected}
+          statusTone={statusTone}
           msgCount={messages.length}
           onClear={clearMessages}
         />
       </div>
 
       {/* СТАТУС-БАР */}
-      <StatusBar status={status} uptime={uptime} connected={connected} />
+      <StatusBar
+        status={status}
+        uptime={uptime}
+        connected={connected}
+        statusTone={statusTone}
+        assistantSpeaking={assistantSpeaking}
+      />
     </div>
   )
 }

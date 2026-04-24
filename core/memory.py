@@ -12,18 +12,25 @@ class JarvisDatabase:
     MAX_FACTS = 500
 
     def __init__(self, db_path="jarvis_core.db"):
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
+        self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=10.0)
         self.conn.row_factory = sqlite3.Row  # ✅ Зручний доступ до колонок
-        self._lock = threading.Lock()        # ✅ Потокобезпека
+        self._lock = threading.Lock()        # legacy (тримаємо для DDL)
+        # WAL дозволяє паралельні читання + одне записування без зовнішнього lock
+        try:
+            self.conn.execute("PRAGMA journal_mode=WAL;")
+            self.conn.execute("PRAGMA synchronous=NORMAL;")
+        except sqlite3.Error as e:
+            logger.warning(f"SQLite PRAGMA failed: {e}")
         self._create_tables()
 
     def _execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
-        """✅ Централізований execute — окремий cursor на кожен виклик"""
-        with self._lock:
-            cur = self.conn.cursor()
-            cur.execute(sql, params)
-            self.conn.commit()
-            return cur
+        """Централізований execute. SQLite з check_same_thread=False + WAL
+        обробляє конкурентний доступ внутрішньо — зовнішній lock не потрібен
+        для звичайних read/write запитів і лише сповільнює hot-path."""
+        cur = self.conn.cursor()
+        cur.execute(sql, params)
+        self.conn.commit()
+        return cur
 
     def _create_tables(self) -> None:
         with self._lock:

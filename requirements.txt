@@ -45,6 +45,14 @@ rapidfuzz
 # --- Сервер ---
 fastapi
 uvicorn[standard]
+python-multipart
+openpyxl
+
+# --- Парсинг документів (PDF, DOCX, OCR) ---
+PyMuPDF
+python-docx
+pytesseract
+Pillow
 
 # --- Desktop UI ---
 customtkinter

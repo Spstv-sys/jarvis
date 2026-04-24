@@ -33,7 +33,12 @@ Thumbs.db
 
 # Database
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
 jarvis_vector_db/
 jarvis_*.log*
+
+# Local runtime data
+uploads/

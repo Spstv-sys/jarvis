@@ -1,0 +1,20 @@
+# Install in a SEPARATE venv (.venv-train), not the Jarvis venv.
+#
+# For NVIDIA GPU (CUDA 12.x):
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+#   pip install -r requirements-train.txt
+#
+# For CPU only (slow):
+#   pip install torch
+#   pip install -r requirements-train.txt
+
+openwakeword[train]>=0.6.0
+piper-tts>=1.2.0
+audiomentations>=0.34.0
+datasets>=2.14.0
+soundfile>=0.12.1
+librosa>=0.10.0
+numpy>=1.24.0
+onnx>=1.15.0
+onnxruntime>=1.16.0
+tqdm>=4.66.0

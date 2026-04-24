@@ -1,14 +1,13 @@
 import os
 import re
 import logging
-import hashlib
 import threading
 import concurrent.futures
-from collections import deque
+from collections import OrderedDict, deque
 from colorama import Fore
 
 import config
-from core.providers import DeepSeekProvider, GeminiProvider, OllamaProvider
+from core.providers import DeepSeekProvider, GeminiProvider, OllamaProvider, OpenAIProvider
 from core.providers.base import BaseLLMProvider
 
 logger = logging.getLogger(__name__)
@@ -29,11 +28,12 @@ class LLMHandler:
         self.personality_mode  = "стандартний"
         self.active_provider   = "deepseek"
         self.short_term_memory = deque(maxlen=self.MAX_SHORT_TERM)
-        self._response_cache: dict = {}
+        self._response_cache: "OrderedDict[str, str]" = OrderedDict()
         self._cache_lock       = threading.Lock()
 
         print(f"{Fore.CYAN}⚙️ Ініціалізація Мовних Моделей (LLM)...")
         self._providers: dict[str, BaseLLMProvider] = {}
+        self._ollama_ready = threading.Event()
         self._init_providers()
 
     # -------------------------------------------------------------------------
@@ -54,14 +54,39 @@ class LLMHandler:
         else:
             logger.error("Не знайдено GEMINI_API_KEY")
 
-        ollama_provider, _, ollama_notice = self._build_ollama_provider()
-        if ollama_provider is not None:
-            self._providers["ollama"] = ollama_provider
-            logger.info("Ollama підключено.")
-            if ollama_notice:
-                logger.warning(ollama_notice)
+        openai_key = os.getenv("OPENAI_API_KEY")
+        if openai_key:
+            openai_model    = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
+            openai_base_url = os.getenv("OPENAI_BASE_URL") or None
+            openai_org      = os.getenv("OPENAI_ORG") or None
+            self._providers["openai"] = OpenAIProvider(
+                api_key=openai_key,
+                model=openai_model,
+                base_url=openai_base_url,
+                organization=openai_org,
+            )
+            logger.info(f"OpenAI підключено (модель: {openai_model}).")
         else:
-            logger.warning(ollama_notice or "Ollama недоступна — пропускаємо ініціалізацію.")
+            logger.info("OPENAI_API_KEY не задано — OpenAI-провайдер пропущено.")
+
+        # Ollama probe is a network call — defer to background thread so it
+        # never blocks startup (saves ~2s when Ollama is slow/unreachable).
+        threading.Thread(
+            target=self._init_ollama_async, daemon=True, name="OllamaInit"
+        ).start()
+
+    def _init_ollama_async(self) -> None:
+        try:
+            ollama_provider, _, ollama_notice = self._build_ollama_provider()
+            if ollama_provider is not None:
+                self._providers["ollama"] = ollama_provider
+                logger.info("Ollama підключено (асинхронно).")
+                if ollama_notice:
+                    logger.warning(ollama_notice)
+            else:
+                logger.warning(ollama_notice or "Ollama недоступна — пропускаємо ініціалізацію.")
+        finally:
+            self._ollama_ready.set()
 
     @staticmethod
     def _normalize_ollama_model_name(model_name: str) -> str:
@@ -127,6 +152,12 @@ class LLMHandler:
         return p.raw_client if p is not None else None
 
     @property
+    def openai_client(self):
+        """Expose the raw OpenAI client (e.g. for direct chat.completions calls)."""
+        p = self._providers.get("openai")
+        return p.raw_client if p is not None else None
+
+    @property
     def ollama_client(self):
         p = self._providers.get("ollama")
         return p.raw_client if p is not None else None
@@ -157,6 +188,12 @@ class LLMHandler:
                 self.audio.speak("Перемикаю нейромережу на Gemini.")
             else:
                 self.audio.speak("Gemini недоступний. Перевірте GEMINI_API_KEY у файлі .env.")
+        elif "openai" in cmd_lower or "gpt" in cmd_lower or "джипіті" in cmd_lower or "чет жпт" in cmd_lower or "четжпт" in cmd_lower:
+            if "openai" in self._providers:
+                self.active_provider = "openai"
+                self.audio.speak("Перемикаю нейромережу на OpenAI GPT.")
+            else:
+                self.audio.speak("OpenAI недоступний. Перевірте OPENAI_API_KEY у файлі .env.")
         elif "ollama" in cmd_lower or "олама" in cmd_lower or "локальн" in cmd_lower:
             ollama_provider, selected_model, notice = self._build_ollama_provider()
             if ollama_provider is not None:
@@ -173,7 +210,7 @@ class LLMHandler:
                 self._providers.pop("ollama", None)
                 self.audio.speak(notice or "Локальна Олама недоступна. Сервер не запущено.")
         else:
-            self.audio.speak("Невідомий провайдер. Доступні: DeepSeek, Gemini, Олама.")
+            self.audio.speak("Невідомий провайдер. Доступні: DeepSeek, Gemini, OpenAI, Олама.")
 
     def get_status(self) -> str:
         return (
@@ -185,17 +222,21 @@ class LLMHandler:
     # КЕШ
     # -------------------------------------------------------------------------
     def _get_cached(self, prompt: str) -> str | None:
-        key = hashlib.md5(prompt.encode()).hexdigest()
+        # Uses prompt directly as key — avoids MD5 cost on every call.
+        # OrderedDict.move_to_end() makes this an O(1) LRU.
         with self._cache_lock:
-            return self._response_cache.get(key)
+            value = self._response_cache.get(prompt)
+            if value is not None:
+                self._response_cache.move_to_end(prompt)
+            return value
 
     def _set_cached(self, prompt: str, response: str) -> None:
-        key = hashlib.md5(prompt.encode()).hexdigest()
         with self._cache_lock:
-            if len(self._response_cache) >= self.CACHE_MAX:
-                oldest = next(iter(self._response_cache))
-                del self._response_cache[oldest]
-            self._response_cache[key] = response
+            if prompt in self._response_cache:
+                self._response_cache.move_to_end(prompt)
+            self._response_cache[prompt] = response
+            while len(self._response_cache) > self.CACHE_MAX:
+                self._response_cache.popitem(last=False)
 
     # -------------------------------------------------------------------------
     # ГЕНЕРАЦІЯ
@@ -239,12 +280,13 @@ class LLMHandler:
                 logger.error(f"Клієнт {self.active_provider} недоступний.")
                 return None
 
-            full_text = ""
+            # Use list buffers + ''.join() to avoid O(n^2) string concatenation.
+            full_parts: list[str] = []
             buffer    = ""
 
             for delta in provider.stream(prompt):
-                buffer    += delta
-                full_text += delta
+                full_parts.append(delta)
+                buffer += delta
 
                 parts = self.SENTENCE_END.split(buffer)
                 if len(parts) > 1:
@@ -257,6 +299,7 @@ class LLMHandler:
             if buffer.strip() and not self._looks_like_code(buffer.strip()):
                 self.audio.speak(buffer.strip())
 
+            full_text = ''.join(full_parts)
             if self._looks_like_code(full_text):
                 self.audio.speak(self._CODE_SPOKEN_MSG)
 

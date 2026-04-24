@@ -14,6 +14,7 @@ export default defineConfig(({ mode }) => {
       proxy: {
         '/command': `http://localhost:${apiPort}`,
         '/status':  `http://localhost:${apiPort}`,
+        '/upload':  `http://localhost:${apiPort}`,
         '/ws':      { target: `ws://localhost:${apiPort}`, ws: true },
       }
     }

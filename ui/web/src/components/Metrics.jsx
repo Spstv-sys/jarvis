@@ -1,46 +1,23 @@
-import { useEffect, useRef } from 'react'
-
 function MetricBar({ label, value, color }) {
-  const barRef = useRef(null)
-  const curRef = useRef(0)
-  const rafRef = useRef(null)
-  const tgtRef = useRef(value)
-
-  useEffect(() => { tgtRef.current = value }, [value])
-
-  useEffect(() => {
-    const animate = () => {
-      const cur = curRef.current
-      const tgt = tgtRef.current
-      const nxt = cur + (tgt - cur) * 0.12
-      curRef.current = nxt
-      if (barRef.current) barRef.current.style.width = `${nxt}%`
-      rafRef.current = requestAnimationFrame(animate)
-    }
-    animate()
-    return () => cancelAnimationFrame(rafRef.current)
-  }, [])
+  const clamped = value != null ? Math.max(0, Math.min(value, 100)) : 0
 
   return (
-    <div style={{ marginBottom: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-        <span style={{ color: '#444', fontSize: 10, fontFamily: 'Consolas', letterSpacing: 1 }}>
+    <div className="metric-block">
+      <div className="metric-block__header">
+        <span className="metric-label">
           {label}
         </span>
-        <span style={{ color: '#666', fontSize: 11, fontFamily: 'Consolas' }}>
+        <span className="metric-value">
           {value != null ? `${Math.round(value)}%` : 'N/A'}
         </span>
       </div>
-      <div style={{ background: '#1a1a1a', borderRadius: 4, height: 6, overflow: 'hidden' }}>
+      <div className="metric-block__track">
         <div
-          ref={barRef}
+          className="metric-block__bar"
           style={{
-            height:     '100%',
-            width:      '0%',
+            width:      `${clamped}%`,
             background: color,
-            borderRadius: 4,
             boxShadow:  `0 0 6px ${color}55`,
-            transition: 'none',
           }}
         />
       </div>
@@ -48,21 +25,16 @@ function MetricBar({ label, value, color }) {
   )
 }
 
-export default function Metrics({ metrics, status, provider, connected, msgCount, onClear }) {
+export default function Metrics({ metrics, status, provider, connected, statusTone, msgCount, onClear }) {
   const { cpu, ram, battery, plugged } = metrics
+  void status
 
   return (
-    <div style={{
-      width:      160,
-      background: '#0d0d0d',
-      border:     '1px solid #1a1a1a',
-      borderRadius: 8,
-      padding:    '16px 14px',
-      display:    'flex',
-      flexDirection: 'column',
-      gap: 4,
-      fontFamily: 'Consolas, monospace',
-    }}>
+    <div className={`hud-panel hud-sidebar hud-sidebar--${statusTone} hud-reveal hud-reveal-delay-3`}>
+      <div className="hud-sidebar__section-head">
+        <span className="hud-kicker">SYSTEM LOAD</span>
+      </div>
+
       <MetricBar label="CPU"     value={cpu} color="#ff4444" />
       <MetricBar label="RAM"     value={ram} color="#4499ff" />
       <MetricBar
@@ -71,42 +43,31 @@ export default function Metrics({ metrics, status, provider, connected, msgCount
         color="#ffee44"
       />
       {battery != null && (
-        <div style={{ color: '#444', fontSize: 10, textAlign: 'right', marginTop: -10 }}>
+        <div className="hud-sidebar__battery-note">
           {plugged ? '⚡ charging' : '🔋'}
         </div>
       )}
 
-      <div style={{ borderTop: '1px solid #1a1a1a', margin: '10px 0' }} />
+      <div className="hud-sidebar__divider" />
 
-      <div style={{ color: connected ? '#00ffcc' : '#ff4444', fontSize: 11, textAlign: 'center' }}>
-        {connected ? '● CONNECTED' : '● OFFLINE'}
+      <div className={`hud-sidebar__status${connected ? ' is-connected' : ' is-offline'}`}>
+        <span className={`metrics-connection-dot ${connected ? 'online' : ''}`}>●</span>{' '}
+        {connected ? 'CONNECTED' : 'OFFLINE'}
       </div>
 
-      <div style={{ color: '#333', fontSize: 10, textAlign: 'center' }}>
+      <div className="hud-sidebar__meta">
         AI: {provider}
       </div>
 
-      <div style={{ borderTop: '1px solid #1a1a1a', margin: '10px 0' }} />
+      <div className="hud-sidebar__divider" />
 
-      <div style={{ color: '#333', fontSize: 10, textAlign: 'center' }}>
+      <div className="hud-sidebar__meta">
         MSG: {msgCount}
       </div>
 
       <button
+        className="clear-button hud-sidebar__clear"
         onClick={onClear}
-        style={{
-          marginTop:   8,
-          background:  'transparent',
-          border:      '1px solid #2a1010',
-          color:       '#ff4444',
-          fontFamily:  'Consolas',
-          fontSize:    11,
-          padding:     '5px 0',
-          borderRadius: 4,
-          cursor:      'pointer',
-        }}
-        onMouseEnter={e => e.target.style.background = '#1a0505'}
-        onMouseLeave={e => e.target.style.background = 'transparent'}
       >
         🗑 CLEAR
       </button>

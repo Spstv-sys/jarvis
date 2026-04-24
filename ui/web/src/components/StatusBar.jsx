@@ -1,4 +1,4 @@
-export default function StatusBar({ status, uptime, connected }) {
+export default function StatusBar({ status, uptime, connected, statusTone, assistantSpeaking }) {
   const normalized = (status || 'LOADING').toUpperCase()
   const isOnline = normalized.includes('ONLINE')
   const isError  = normalized.includes('ERROR')
@@ -8,27 +8,29 @@ export default function StatusBar({ status, uptime, connected }) {
   const label = isLoading ? 'LOADING' : normalized
 
   return (
-    <div style={{
-      height:     28,
-      background: '#080808',
-      borderTop:  '1px solid #1a1a1a',
-      display:    'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      padding:    '0 16px',
-      fontFamily: 'Consolas, monospace',
-      fontSize:   11,
-    }}>
-      <style>{`
-        @keyframes statusPulse { 0% { opacity: 0.25; } 50% { opacity: 1; } 100% { opacity: 0.25; } }
-      `}</style>
-      <span style={{ color, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ animation: isLoading ? 'statusPulse 1s ease-in-out infinite' : 'none' }}>
+    <div className={`hud-statusbar hud-statusbar--${statusTone}${assistantSpeaking ? ' hud-statusbar--speaking' : ''}`}>
+      <span className="hud-statusbar__state" style={{ color }}>
+        <span className={[
+          isLoading ? 'status-dot-loading' : '',
+          isOnline ? 'status-dot-online' : '',
+          isError ? 'status-dot-error' : '',
+        ].filter(Boolean).join(' ')}>
           ●
         </span>
         {label}
       </span>
-      <span style={{ color: '#333' }}>UPTIME: {uptime}</span>
+      {assistantSpeaking && (
+        <span className="hud-statusbar__speaking">
+          <span className="hud-statusbar__equalizer" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+            <span />
+          </span>
+          VOICE OUTPUT ACTIVE
+        </span>
+      )}
+      <span className="hud-statusbar__uptime">UPTIME: {uptime}</span>
     </div>
   )
 }

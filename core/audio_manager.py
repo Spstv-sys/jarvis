@@ -57,6 +57,7 @@ class AudioManager:
         self._output_cb     = output_callback
         self.current_volume = 0
         self.whisper_model  = None
+        self._whisper_ready = threading.Event()
         self._speak_lock    = threading.Lock()
         self._noise_calibrated = False
         self._oww_ready     = threading.Event()
@@ -71,15 +72,27 @@ class AudioManager:
 
             self.mic_available = self.check_microphone()
 
-            self.whisper_model = self._load_whisper()
-
         except Exception as e:
             logger.error(f"Помилка ініціалізації аудіо: {e}")
-            if self.whisper_model is None:
-                print(f"{Fore.RED}⚠️ Запуск Whisper на CPU...")
-                self.whisper_model = self._load_whisper(force_cpu=True)
 
+        # Whisper is large (~1GB) and slow to load (5-10s).
+        # Defer to a background thread so server boot is not blocked.
+        threading.Thread(
+            target=self._load_whisper_async, daemon=True, name="WhisperLoader"
+        ).start()
         threading.Thread(target=self._load_oww_model, daemon=True, name="OWWLoader").start()
+
+    def _load_whisper_async(self) -> None:
+        try:
+            model = self._load_whisper()
+            if model is None:
+                print(f"{Fore.RED}⚠️ Запуск Whisper на CPU...")
+                model = self._load_whisper(force_cpu=True)
+            self.whisper_model = model
+        except Exception as e:
+            logger.error(f"Whisper: помилка фонового завантаження: {e}")
+        finally:
+            self._whisper_ready.set()
 
     def _load_oww_model(self):
         """Завантаження openwakeword у фоні — не блокує старт"""
@@ -319,6 +332,9 @@ class AudioManager:
     def _whisper_wake_word_fallback(self) -> bool:
         """Fallback: записує ~3 секунди через speech_recognition і перевіряє
         чи є слово 'джарвіс' у Whisper-транскрипції."""
+        # Wait briefly for Whisper to finish loading in the background.
+        if self.whisper_model is None:
+            self._whisper_ready.wait(timeout=30)
         if self.whisper_model is None:
             logger.error("Whisper-fallback: Whisper не завантажено, wake word неможливо детектувати.")
             return False
@@ -379,6 +395,9 @@ class AudioManager:
         if not self.mic_available:
             logger.warning("listen_for_command: мікрофон недоступний.")
             return None
+        # Wait briefly for Whisper to finish loading in the background.
+        if self.whisper_model is None:
+            self._whisper_ready.wait(timeout=30)
         if self.whisper_model is None:
             logger.error("Whisper не завантажено.")
             return None

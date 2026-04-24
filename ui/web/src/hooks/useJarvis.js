@@ -5,6 +5,7 @@ const WS_URL = `ws://localhost:5173/ws`  // через Vite proxy
 export function useJarvis() {
   const ws              = useRef(null)
   const reconnectTimer  = useRef(null)
+  const intentionalClose = useRef(false)
 
   const [messages, setMessages] = useState([])
   const [metrics,  setMetrics]  = useState({ cpu: 0, ram: 0, battery: null, plugged: null, volume: 0 })
@@ -13,9 +14,15 @@ export function useJarvis() {
   const [connected, setConnected] = useState(false)
 
   const connect = useCallback(() => {
-    if (ws.current?.readyState === WebSocket.OPEN) return
+    // Не створюємо паралельне з'єднання, якщо сокет уже існує
+    // (CONNECTING або OPEN). Це критично для React.StrictMode у dev,
+    // де ефекти монтуються двічі та інакше з'являлися б два WS-клієнти,
+    // через що сервер дублював би всі broadcast-повідомлення в UI.
+    if (ws.current && ws.current.readyState <= WebSocket.OPEN) return
 
+    intentionalClose.current = false
     const socket = new WebSocket(WS_URL)
+    ws.current = socket
 
     socket.onopen = () => {
       setConnected(true)
@@ -26,6 +33,8 @@ export function useJarvis() {
     socket.onclose = () => {
       setConnected(false)
       setStatus(prev => (prev && prev.toUpperCase().includes('ERROR')) ? prev : 'OFFLINE')
+      if (ws.current === socket) ws.current = null
+      if (intentionalClose.current) return
       reconnectTimer.current = setTimeout(connect, 2000)
     }
 
@@ -60,8 +69,6 @@ export function useJarvis() {
         }])
       }
     }
-
-    ws.current = socket
   }, [])
 
   useEffect(() => {
@@ -78,7 +85,9 @@ export function useJarvis() {
 
     return () => {
       clearTimeout(reconnectTimer.current)
+      intentionalClose.current = true
       ws.current?.close()
+      ws.current = null
     }
   }, [connect])
 
@@ -97,5 +106,28 @@ export function useJarvis() {
 
   const clearMessages = useCallback(() => setMessages([]), [])
 
-  return { messages, metrics, status, provider, connected, sendCommand, clearMessages }
+  const uploadFile = useCallback(async (file, prompt = '') => {
+    if (!file) return { ok: false, error: 'no file' }
+    const fd = new FormData()
+    fd.append('file', file)
+    if (prompt) fd.append('prompt', prompt)
+    try {
+      const res = await fetch('/upload', { method: 'POST', body: fd })
+      if (!res.ok) {
+        const detail = await res.text().catch(() => res.statusText)
+        setMessages(prev => [...prev.slice(-200), {
+          id:     Date.now() + Math.random(),
+          sender: 'STATUS',
+          text:   `❌ Завантаження не вдалося (${res.status}): ${detail}`,
+          time:   new Date().toLocaleTimeString('uk-UA', { hour12: false }),
+        }])
+        return { ok: false, status: res.status, error: detail }
+      }
+      return { ok: true, data: await res.json() }
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  }, [])
+
+  return { messages, metrics, status, provider, connected, sendCommand, clearMessages, uploadFile }
 }

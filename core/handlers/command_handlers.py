@@ -286,7 +286,16 @@ class CommandHandlers:
     # ==================================================================
     def cmd_switch_ai(self, cmd: str) -> str:
         logger.info(f"cmd_switch_ai: {cmd!r}")
+        prev = self.llm.active_provider
         self.llm.switch_provider(cmd)
+        # Notify UI about provider change so the indicator updates live.
+        # The frontend (useJarvis.js) extracts provider from STATUS messages
+        # matching the pattern /інтелект:\s*(\S+)/.
+        if self.llm.active_provider != prev and self.jarvis.ui_callback:
+            self.jarvis.ui_callback(
+                "STATUS",
+                f"Активний інтелект: {self.llm.active_provider}",
+            )
         return "CONTINUE"
 
     def cmd_personality(self, cmd: str) -> str:
@@ -363,18 +372,45 @@ class CommandHandlers:
         ]
 
         self.audio.speak(f"Шукаю файл {search_term}...")
-        found = []
+        found: list[str] = []
+
+        # Обмеження, щоб не сканувати вічно (AppData, node_modules тощо).
+        MAX_DEPTH = 4
+        MAX_RESULTS = 5
+        SKIP_DIRS = {
+            ".venv", "venv", "node_modules", ".git", "__pycache__",
+            "AppData", "Application Data", ".cache", ".npm", ".gradle",
+            "dist", "build", ".next", ".vscode", ".idea",
+        }
+        term_lower = search_term.lower()
+
+        def _scan(path: str, depth: int) -> None:
+            if depth > MAX_DEPTH or len(found) >= MAX_RESULTS:
+                return
+            try:
+                with os.scandir(path) as it:
+                    for entry in it:
+                        if len(found) >= MAX_RESULTS:
+                            return
+                        name = entry.name
+                        if name.startswith(".") or name in SKIP_DIRS:
+                            continue
+                        try:
+                            if entry.is_file(follow_symlinks=False):
+                                if term_lower in name.lower():
+                                    found.append(entry.path)
+                            elif entry.is_dir(follow_symlinks=False):
+                                _scan(entry.path, depth + 1)
+                        except OSError:
+                            continue
+            except (OSError, PermissionError):
+                return
 
         for root in search_roots:
             if not os.path.exists(root):
                 continue
-            for dirpath, _, filenames in os.walk(root):
-                for fname in filenames:
-                    if search_term.lower() in fname.lower():
-                        found.append(os.path.join(dirpath, fname))
-                if len(found) >= 5:
-                    break
-            if len(found) >= 5:
+            _scan(root, 0)
+            if len(found) >= MAX_RESULTS:
                 break
 
         if not found:

@@ -41,9 +41,9 @@ let win = null
 
 function createWindow() {
   win = new BrowserWindow({
-    width: 600,
-    height: 600,
-    minWidth: 400,
+    width: 690,
+    height: 680,
+    minWidth: 560,
     minHeight: 400,
     frame: false,
     resizable: true,
@@ -57,7 +57,24 @@ function createWindow() {
   })
 
   win.setTitle('J.A.R.V.I.S.')
-  win.loadURL('http://localhost:5173')
+
+  const targetUrl = 'http://localhost:5173'
+  const loadWithRetry = (attempt = 0) => {
+    win.loadURL(targetUrl).catch((err) => {
+      if (attempt >= 60) {
+        console.error('[JARVIS] Vite did not respond in time:', err?.message || err)
+        return
+      }
+      setTimeout(() => loadWithRetry(attempt + 1), 1000)
+    })
+  }
+  loadWithRetry()
+
+  // Re-try if the renderer fails to load (e.g. Vite started after Electron)
+  win.webContents.on('did-fail-load', (_e, errorCode, errorDescription) => {
+    if (errorCode === -3) return // ABORTED — usually means a new navigation started
+    setTimeout(() => loadWithRetry(0), 1000)
+  })
 
   const showTimer = setTimeout(() => win.show(), 3000)
   win.once('ready-to-show', () => {

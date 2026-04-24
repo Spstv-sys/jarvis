@@ -18,6 +18,7 @@ colorama
 rapidfuzz
 fastapi
 uvicorn[standard]
+python-multipart
 pytest
 edge-tts
 numpy
