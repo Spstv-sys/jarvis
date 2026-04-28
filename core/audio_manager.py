@@ -422,12 +422,19 @@ class AudioManager:
                     self.recognizer.adjust_for_ambient_noise(source, duration=1.0)
                     self._noise_calibrated = True
 
-                self.recognizer.pause_threshold       = 2.0 if dictation_mode else 1.2
-                self.recognizer.non_speaking_duration = 0.5
+                self.recognizer.pause_threshold       = (
+                    config.DICTATION_PAUSE_THRESHOLD if dictation_mode
+                    else config.LISTEN_PAUSE_THRESHOLD
+                )
+                self.recognizer.non_speaking_duration = config.LISTEN_NON_SPEAKING
 
                 print(f"{Fore.CYAN}🎤 Слухаю вас...")
-                limit = 180 if dictation_mode else 15
-                audio = self.recognizer.listen(source, timeout=8, phrase_time_limit=limit)
+                limit = config.DICTATION_PHRASE_LIMIT if dictation_mode else config.LISTEN_PHRASE_LIMIT
+                audio = self.recognizer.listen(
+                    source,
+                    timeout=config.LISTEN_TIMEOUT,
+                    phrase_time_limit=limit,
+                )
 
             with open(tmp_path, "wb") as f:
                 f.write(audio.get_wav_data())

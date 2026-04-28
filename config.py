@@ -31,6 +31,21 @@ VOICE_MODEL  = "uk-UA-OstapNeural"
 VOICE_RATE   = "+30%"
 WAKE_WORDS   = ["hey_jarvis"]
 
+# ----- Параметри слухання голосових команд -----
+# Усі значення в секундах. Можна перевизначити через .env.
+# LISTEN_TIMEOUT          — скільки чекати ПОЧАТКУ мовлення після "Слухаю".
+# LISTEN_PAUSE_THRESHOLD  — тиша всередині фрази, після якої запис вважається завершеним.
+#                           Збільш, якщо Jarvis обриває на півслові, коли робиш паузу подумати.
+# LISTEN_NON_SPEAKING     — мінімальна тиша на кінці, що додається до запису (м'якіше відсікання).
+# LISTEN_PHRASE_LIMIT     — максимальна довжина однієї команди.
+# DICTATION_PAUSE/LIMIT   — те саме для режиму "диктовка" (довгі тексти).
+LISTEN_TIMEOUT          = float(os.getenv("LISTEN_TIMEOUT", "15"))
+LISTEN_PAUSE_THRESHOLD  = float(os.getenv("LISTEN_PAUSE_THRESHOLD", "1.8"))
+LISTEN_NON_SPEAKING     = float(os.getenv("LISTEN_NON_SPEAKING", "0.8"))
+LISTEN_PHRASE_LIMIT     = int(os.getenv("LISTEN_PHRASE_LIMIT", "30"))
+DICTATION_PAUSE_THRESHOLD = float(os.getenv("DICTATION_PAUSE_THRESHOLD", "2.5"))
+DICTATION_PHRASE_LIMIT    = int(os.getenv("DICTATION_PHRASE_LIMIT", "240"))
+
 # ==========================================
 # 3. ДОДАТКИ
 # ==========================================
