@@ -42,3 +42,5 @@ jarvis_*.log*
 
 # Local runtime data
 uploads/
+Converted_Audio/
+Converted_Excel/
