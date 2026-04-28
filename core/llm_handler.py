@@ -16,9 +16,59 @@ logger = logging.getLogger(__name__)
 class LLMHandler:
     MAX_SHORT_TERM = 20
     CACHE_MAX      = 30
-    SENTENCE_END   = re.compile(r'(?<=[.!?])\s+')
-    _CODE_MARKERS  = ('def ', 'class ', 'import ', 'from ', 'return ', '#!/', 'if __name__')
+
+    # Sentence splitter:
+    #   - splits on . ! ? : ; followed by whitespace, OR on a newline
+    #   - lookbehind requires a lowercase/Cyrillic letter (>=2 chars) before the
+    #     terminator so common Ukrainian abbreviations like "м.", "вул.", "р.",
+    #     "т.зв." do not trigger a split mid-sentence.
+    SENTENCE_END = re.compile(
+        r'(?<=[а-яіїєґa-z]{2}[.!?:;])\s+|\n+',
+        re.IGNORECASE,
+    )
+
+    # How much text to buffer at the start of a stream before deciding whether
+    # the response is code (and should NOT be spoken sentence-by-sentence).
+    _CODE_DETECT_BUFFER = 250
+
+    _CODE_MARKERS  = ('def ', 'class ', 'import ', 'from ', 'return ', '#!/', 'if __name__', '```')
     _CODE_SPOKEN_MSG = "Відповідь містить програмний код. Результат збережено або відображено на екрані."
+
+    # ------------------------------------------------------------------
+    # Markdown / emoji sanitizer for TTS.
+    # Removes things that Edge-TTS reads literally ("зірочка зірочка", etc.).
+    # ------------------------------------------------------------------
+    _RE_CODE_FENCE   = re.compile(r"```[\s\S]*?```")
+    _RE_INLINE_CODE  = re.compile(r"`([^`]*)`")
+    _RE_BOLD_ITAL    = re.compile(r"(\*{1,3}|_{1,3})(.+?)\1")
+    _RE_HEADING      = re.compile(r"^\s{0,3}#{1,6}\s*", re.MULTILINE)
+    _RE_LIST_BULLET  = re.compile(r"^\s*[-*+•]\s+", re.MULTILINE)
+    _RE_LIST_NUM     = re.compile(r"^\s*\d+[.)]\s+", re.MULTILINE)
+    _RE_LINK         = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+    _RE_EMOJI        = re.compile(
+        "["
+        "\U0001F300-\U0001FAFF"
+        "\U00002600-\U000027BF"
+        "\U0001F000-\U0001F2FF"
+        "]+",
+        flags=re.UNICODE,
+    )
+    _RE_MULTI_SPACE  = re.compile(r"[ \t]{2,}")
+
+    @classmethod
+    def _sanitize_for_tts(cls, text: str) -> str:
+        if not text:
+            return text
+        text = cls._RE_CODE_FENCE.sub(" ", text)
+        text = cls._RE_INLINE_CODE.sub(r"\1", text)
+        text = cls._RE_LINK.sub(r"\1", text)
+        text = cls._RE_BOLD_ITAL.sub(r"\2", text)
+        text = cls._RE_HEADING.sub("", text)
+        text = cls._RE_LIST_BULLET.sub("", text)
+        text = cls._RE_LIST_NUM.sub("", text)
+        text = cls._RE_EMOJI.sub("", text)
+        text = cls._RE_MULTI_SPACE.sub(" ", text)
+        return text.strip()
 
     def __init__(self, db, brain, audio):
         self.db    = db
@@ -269,38 +319,82 @@ class LLMHandler:
     # СТРИМІНГ + TTS
     # -------------------------------------------------------------------------
     def _looks_like_code(self, text: str) -> bool:
+        # Triple-backtick fence is a definitive signal regardless of length.
+        if "```" in text:
+            return True
         lines = text.splitlines()
         code_lines = sum(1 for line in lines if any(m in line for m in self._CODE_MARKERS))
         return code_lines >= 2
 
     def _stream_and_speak(self, prompt: str) -> str | None:
+        """Stream a response from the active provider.
+
+        Strategy:
+          1. Buffer the first ``_CODE_DETECT_BUFFER`` characters silently.
+          2. Decide ONCE whether the response is code.
+             - If yes: keep collecting full text without speaking, then say
+               the short ``_CODE_SPOKEN_MSG`` once at the end.
+             - If no: flush the buffered prefix sentence-by-sentence and
+               continue streaming + speaking the rest in real time.
+        This avoids the previous bug where individual sentences were spoken
+        out loud first and the "code detected" message was appended after.
+        """
         try:
             provider = self._get_active_provider()
             if provider is None:
                 logger.error(f"Клієнт {self.active_provider} недоступний.")
                 return None
 
-            # Use list buffers + ''.join() to avoid O(n^2) string concatenation.
             full_parts: list[str] = []
-            buffer    = ""
+            buffer = ""           # spoken-pending text
+            decided = False       # has code/no-code decision been made yet?
+            is_code = False
 
             for delta in provider.stream(prompt):
+                if not delta:
+                    continue
                 full_parts.append(delta)
-                buffer += delta
 
+                if not decided:
+                    buffer += delta
+                    if len(buffer) < self._CODE_DETECT_BUFFER:
+                        continue
+                    is_code = self._looks_like_code(buffer)
+                    decided = True
+                    if is_code:
+                        # Stop accumulating speakable buffer — we will not speak it.
+                        buffer = ""
+                        continue
+                    # else: fall through and start speaking the buffered prefix.
+
+                if is_code:
+                    # Keep consuming stream but do not speak intermediate text.
+                    continue
+
+                buffer += delta
                 parts = self.SENTENCE_END.split(buffer)
                 if len(parts) > 1:
                     for sentence in parts[:-1]:
-                        sentence = sentence.strip()
-                        if sentence and not self._looks_like_code(sentence):
-                            self.audio.speak(sentence)
+                        clean = self._sanitize_for_tts(sentence)
+                        if clean:
+                            self.audio.speak(clean)
                     buffer = parts[-1]
 
-            if buffer.strip() and not self._looks_like_code(buffer.strip()):
-                self.audio.speak(buffer.strip())
+            # End of stream.
+            if not decided:
+                # Stream was shorter than the detection buffer — decide now.
+                is_code = self._looks_like_code(buffer)
+                decided = True
+                if is_code:
+                    buffer = ""
+
+            if not is_code and buffer.strip():
+                clean = self._sanitize_for_tts(buffer)
+                if clean:
+                    self.audio.speak(clean)
 
             full_text = ''.join(full_parts)
-            if self._looks_like_code(full_text):
+            if is_code:
                 self.audio.speak(self._CODE_SPOKEN_MSG)
 
             return full_text.strip() if full_text else None
@@ -342,15 +436,18 @@ class LLMHandler:
             f"РЕЛЕВАНТНІ ФАКТИ: {relevant_facts}\n"
             f"ДОДАТКОВІ ФАКТИ: {recent_facts}\n"
             f"ІСТОРІЯ ДІАЛОГУ:\n{history}\n\n"
-            f"ЗАПИТ КОРИСТУВАЧА: {user_text}\n"
-            f"ВІДПОВІДЬ (без markdown, зручна для озвучення):"
+            f"ЗАПИТ КОРИСТУВАЧА: {user_text}"
         )
 
         full_answer = self._stream_and_speak(full_prompt)
 
         if full_answer:
             self.short_term_memory.append(f"AI: {full_answer}")
-            self._set_cached(full_prompt, full_answer)
+            # NOTE: response cache intentionally not populated here — full_prompt
+            # contains time-stamped recent_facts, RAG search output, and dialogue
+            # history, so it is effectively unique per call. Caching would only
+            # waste memory. The cache stays useful for generate_response()
+            # (system calls with stable prompts).
             threading.Thread(
                 target=self._save_to_memory,
                 args=(user_text, full_answer),
