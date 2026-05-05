@@ -16,7 +16,7 @@ from colorama import Fore
 from duckduckgo_search import DDGS
 
 import config
-from core.utils import strip_triggers
+from core.utils import strip_triggers, check_code_safety
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +44,12 @@ _FORBIDDEN_SKILL_PATTERNS = [
 
 
 def _check_skill_safety(code: str) -> tuple[bool, str]:
-    """Return (True, '') if code is safe, (False, matched_pattern) otherwise."""
-    for pattern in _FORBIDDEN_SKILL_PATTERNS:
-        if re.search(pattern, code):
-            return False, pattern
-    return True, ""
+    """Return (True, '') if code is safe, (False, matched_pattern) otherwise.
+
+    Delegates to :func:`core.utils.check_code_safety` for dual-layer
+    (regex + AST) analysis.
+    """
+    return check_code_safety(code)
 
 
 class CommandHandlers:
