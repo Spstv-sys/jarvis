@@ -410,7 +410,7 @@ class LLMHandler:
         self.short_term_memory.append(f"User: {user_text}")
 
         print(f"{Fore.YELLOW}🔍 Пошук контексту (паралельно)...")
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
             future_context = pool.submit(self.brain.search, user_text, 10)
             future_facts   = pool.submit(self.db.get_recent_facts, 15)
             future_relevant_facts = pool.submit(self.db.search_facts, user_text, 8)
