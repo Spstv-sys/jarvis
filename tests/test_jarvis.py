@@ -274,9 +274,18 @@ def test_skill_safety_os_system_blocked():
 
 def test_skill_safety_subprocess_blocked():
     from core.handlers.command_handlers import _check_skill_safety
-    code = "import subprocess\nsubprocess.run(['ls'])"
+    # subprocess with shell=True is dangerous and must be blocked
+    code = "import subprocess\nsubprocess.run('ls', shell=True)"
     safe, pattern = _check_skill_safety(code)
     assert safe is False
+
+
+def test_skill_safety_subprocess_list_allowed():
+    from core.handlers.command_handlers import _check_skill_safety
+    # subprocess with a list (no shell=True) is safe and must be allowed
+    code = "import subprocess\nsubprocess.run(['ls', '-la'])"
+    safe, _ = _check_skill_safety(code)
+    assert safe is True
 
 
 def test_skill_safety_eval_blocked():

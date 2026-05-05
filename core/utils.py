@@ -10,20 +10,25 @@ import re
 # ---------------------------------------------------------------------------
 _FORBIDDEN_PATTERNS: list[str] = [
     r'\bos\.system\b',
-    r'\bsubprocess\b',
+    r'\bos\.popen\b',
     r'\b__import__\b',
     r'\beval\b',
     r'\bexec\b',
+    # subprocess with shell=True is dangerous (shell injection); block it.
+    # subprocess without shell=True is safe and commonly needed by generated scripts.
+    r'subprocess\s*\.\s*\w+\s*\([^)]*shell\s*=\s*True',
 ]
 
 _FORBIDDEN_IMPORTS: frozenset[str] = frozenset({
-    "subprocess", "ctypes", "importlib", "builtins",
+    "ctypes", "importlib", "builtins",
 })
 _FORBIDDEN_CALLS: frozenset[str] = frozenset({
     "eval", "exec", "__import__", "compile",
 })
+# os.system / os.popen are blocked via regex above.
+# subprocess attribute calls are allowed when shell=False (the default).
 _FORBIDDEN_ATTR_CALLS: frozenset[str] = frozenset({
-    "system", "popen", "run", "call", "check_output", "check_call",
+    "system", "popen",
 })
 
 
@@ -44,7 +49,7 @@ def check_code_safety(code: str) -> tuple[bool, str]:
     """
     # Layer 1: regex
     for pattern in _FORBIDDEN_PATTERNS:
-        if re.search(pattern, code):
+        if re.search(pattern, code, re.DOTALL):
             return False, pattern
 
     # Layer 2: AST

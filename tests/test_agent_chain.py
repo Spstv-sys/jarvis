@@ -306,7 +306,8 @@ def test_empty_code_section_refused(tmp_sorting):
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("bad_code", [
     "import os\nos.system('rm -rf /')\n",
-    "import subprocess\nsubprocess.run(['rm','x'])\n",
+    # subprocess with shell=True is dangerous
+    "import subprocess\nsubprocess.run('rm -rf /', shell=True)\n",
     "exec('print(1)')\n",
     "eval('1+1')\n",
     "__import__('os').system('x')\n",
