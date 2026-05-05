@@ -1,4 +1,5 @@
 import os
+import time
 import logging
 import config
 from rapidfuzz import process
@@ -18,10 +19,49 @@ TRIGGERS = [
     "поясни скрипт",
     "опиши скрипт",
     "розкажи про скрипт",
+    # Agent-created scripts listing
+    "агентські скрипти",
+    "скрипти від агентів",
+    "що зробили агенти",
+    "покажи агентські скрипти",
+    "список агентських файлів",
+    "що написали агенти",
+    "агентні скрипти",
 ]
+
+_AGENT_TRIGGERS = [
+    "агентські скрипти",
+    "скрипти від агентів",
+    "що зробили агенти",
+    "покажи агентські скрипти",
+    "список агентських файлів",
+    "що написали агенти",
+    "агентні скрипти",
+]
+
 
 def _normalize(s):
     return s.replace("_", "").replace("-", "").replace(" ", "").lower()
+
+
+def _collect_agent_scripts(base_dir):
+    """Повертає список (filename, full_path, mtime) для файлів,
+    що агенти згенерували (корінь SORTING_DRIVE, без bak-копій)."""
+    result = []
+    if not os.path.isdir(base_dir):
+        return result
+    for entry in os.scandir(base_dir):
+        if not entry.is_file():
+            continue
+        name = entry.name
+        if not name.endswith(".py"):
+            continue
+        # Skip timestamped backup files (e.g. calc.bak_20250520_153045.py)
+        if ".bak_" in name:
+            continue
+        result.append((name, entry.path, entry.stat().st_mtime))
+    result.sort(key=lambda x: x[2], reverse=True)  # newest first
+    return result
 
 def _collect_scripts(base_dir):
     """Збираємо скрипти з кореневої папки І з підпапки Code."""
@@ -43,7 +83,32 @@ def _find_script(search_term, scripts_map):
 
 def execute(cmd, jarvis):
     base_dir = config.SORTING_DRIVE
+    cmd_lower = cmd.lower()
 
+    # ── Agent-scripts listing mode ─────────────────────────────────────────
+    if any(t in cmd_lower for t in _AGENT_TRIGGERS):
+        if not os.path.isdir(base_dir):
+            return f"Папка {base_dir} не знайдена. Перевірте підключення диска."
+        agent_scripts = _collect_agent_scripts(base_dir)
+        if not agent_scripts:
+            return (
+                f"Агенти ще не створили жодного скрипту. "
+                f"(шукав у {base_dir})"
+            )
+        jarvis.audio.speak(f"Знайшло {len(agent_scripts)} агентських скриптів.")
+        lines = [
+            f"Скрипти створені агентами ({len(agent_scripts)} шт.):",
+            "-" * 50,
+        ]
+        for i, (name, path, mtime) in enumerate(agent_scripts, 1):
+            size_kb = os.path.getsize(path) / 1024
+            ts = time.strftime("%d.%m.%Y %H:%M", time.localtime(mtime))
+            lines.append(f"{i:2}. {name:<35} {size_kb:5.1f} KB  [{ts}]")
+        lines.append("-" * 50)
+        lines.append("Скажіть 'що робить скрипт [назва]' для детального опису.")
+        return "\n".join(lines)
+
+    # ── General scripts listing mode ───────────────────────────────────────
     if not os.path.exists(base_dir):
         return f"Папка {base_dir} не знайдена. Перевірте підключення диска."
 
@@ -53,7 +118,6 @@ def execute(cmd, jarvis):
     if not scripts_map:
         return f"У мене поки що немає жодного збереженого скрипту. (шукав у {base_dir} та {base_dir}\\Code)"
 
-    cmd_lower = cmd.lower()
     is_describe = any(t in cmd_lower for t in [
         "що робить скрипт", "для чого скрипт", "навіщо скрипт",
         "поясни скрипт", "опиши скрипт", "розкажи про скрипт"
