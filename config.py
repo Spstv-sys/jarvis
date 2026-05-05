@@ -46,6 +46,16 @@ LISTEN_PHRASE_LIMIT     = int(os.getenv("LISTEN_PHRASE_LIMIT", "30"))
 DICTATION_PAUSE_THRESHOLD = float(os.getenv("DICTATION_PAUSE_THRESHOLD", "2.5"))
 DICTATION_PHRASE_LIMIT    = int(os.getenv("DICTATION_PHRASE_LIMIT", "240"))
 
+# ----- Параметри обробки команд (BrainWorker pool) -----
+# BRAIN_MAX_WORKERS — верхня межа одночасних команд. Захищає від спаму
+# командами та DoS-подібного зростання потоків. 4 — комфортно для домашнього
+# асистента: типово виконується 1-2 задачі, інші чекають у черзі пулу.
+# BRAIN_COMMAND_TIMEOUT — після стількох секунд "висячий" обробник логує
+# попередження (потік не вбивається — Python не вміє безпечно kill'ити thread,
+# але видимість дає інженеру шанс перезапустити процес/перемкнути LLM).
+BRAIN_MAX_WORKERS    = int(os.getenv("BRAIN_MAX_WORKERS", "4"))
+BRAIN_COMMAND_TIMEOUT = float(os.getenv("BRAIN_COMMAND_TIMEOUT", "300"))
+
 # ==========================================
 # 3. ДОДАТКИ
 # ==========================================

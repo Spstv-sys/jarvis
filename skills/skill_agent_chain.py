@@ -1,5 +1,9 @@
+import ast
 import os
 import re
+import shutil
+import subprocess
+import sys
 import time
 import logging
 import config
@@ -16,14 +20,184 @@ TRIGGERS = [
 ]
 
 # Trim context passed between agents to avoid exceeding LLM token limits.
-# At ~4 chars/token 8000 chars ≈ 2000 tokens — fits comfortably in all providers
-# while giving agents enough context to process larger generated files.
-_MAX_CONTEXT = 8000
+# At ~4 chars/token 24000 chars ≈ 6000 tokens — fits comfortably in modern
+# providers (8k+ context) and is large enough that typical generated files
+# (under ~600 LOC) survive intact between Reviewer and Refactorer stages
+# without losing their middle section.
+_MAX_CONTEXT = 24000
 
 # Number of tail chars to preserve when the text exceeds _MAX_CONTEXT.
 # Keeping both the beginning (structure/imports) and the end (final functions)
 # reduces the chance of an agent receiving incomplete code.
-_TAIL_CHARS = 2000
+_TAIL_CHARS = 6000
+
+# Maximum Developer↔Reviewer self-correction iterations. The loop exits early
+# when the Reviewer signals "STATUS: APPROVED" — typical happy path is 1-2
+# iterations. The cap prevents pathological loops on intractable bugs.
+_MAX_REVIEW_ITERATIONS = 3
+
+# Maximum syntax-fix retries asked from the Refactorer when ast.parse() fails
+# on its output. Two attempts suffice for almost all transient mistakes
+# (missing colon, unmatched bracket) without burning excessive tokens.
+_MAX_SYNTAX_RETRIES = 2
+
+
+def _parse_filename_and_code(response: str, default_prefix: str = "agent_chain") -> tuple[str, str]:
+    """Extract ``(filename, code)`` from a stage response.
+
+    Honours the ``FILENAME:``/``CODE:`` contract; falls back to a fenced
+    code block if the contract is broken; returns ``("", "")`` if no code can
+    be recovered. ``filename`` is always passed through :func:`os.path.basename`
+    to neutralise path-traversal attempts.
+    """
+    filename_match = re.search(r"FILENAME:\s*([^/\\\s]+\.py)", response)
+    filename = filename_match.group(1).strip() if filename_match else f"{default_prefix}_{int(time.time())}.py"
+    filename = os.path.basename(filename)
+
+    if "CODE:" in response:
+        code = response.split("CODE:", 1)[1].strip()
+    else:
+        logger.warning("Response missing CODE: section — attempting fenced-block extraction.")
+        fenced = re.search(r"```(?:python)?\s*\n(.*?)```", response, re.DOTALL)
+        code = fenced.group(1).strip() if fenced else ""
+
+    code = code.replace("```python", "").replace("```", "").strip()
+    return filename, code
+
+
+def _validate_syntax(code: str) -> tuple[bool, str]:
+    """Return ``(True, "")`` if *code* parses as Python, ``(False, error)`` otherwise."""
+    try:
+        ast.parse(code)
+        return True, ""
+    except SyntaxError as exc:
+        return False, f"line {exc.lineno}: {exc.msg}"
+
+
+def _autoformat(code: str) -> str:
+    """Best-effort apply ``ruff --fix`` then ``black`` to *code*.
+
+    Both tools are optional. Failures are logged at DEBUG and the original
+    code is returned — formatting is a quality-of-life improvement, not a
+    correctness requirement.
+    """
+    formatted = code
+
+    # ruff --fix (lint autofixes: imports order, unused vars, simple style)
+    if shutil.which("ruff"):
+        try:
+            proc = subprocess.run(
+                ["ruff", "check", "--fix", "--exit-zero", "--stdin-filename", "snippet.py", "-"],
+                input=formatted, capture_output=True, text=True, timeout=15,
+                encoding="utf-8", errors="replace",
+            )
+            # ruff prints diagnostics to stderr; fixed code goes to stdout when
+            # --fix is combined with stdin. If ruff lacks stdin output support
+            # in the installed version, stdout will be empty — keep original.
+            if proc.returncode in (0, 1) and proc.stdout.strip():
+                formatted = proc.stdout
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            logger.debug("ruff autoformat skipped: %s", exc)
+
+    # black (formatting)
+    if shutil.which("black"):
+        try:
+            proc = subprocess.run(
+                ["black", "--quiet", "-"],
+                input=formatted, capture_output=True, text=True, timeout=15,
+                encoding="utf-8", errors="replace",
+            )
+            if proc.returncode == 0 and proc.stdout:
+                formatted = proc.stdout
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            logger.debug("black autoformat skipped: %s", exc)
+
+    return formatted
+
+
+def _ruff_diagnostics(code: str) -> str:
+    """Run ``ruff check`` (no fix) on *code* and return concise diagnostics.
+
+    Returns an empty string if ruff is unavailable, the run fails, or there
+    are no findings. The output is intended to be embedded into the Reviewer
+    prompt so the LLM critiques real issues instead of hallucinated ones.
+    """
+    if not shutil.which("ruff"):
+        return ""
+    try:
+        proc = subprocess.run(
+            [
+                "ruff", "check",
+                "--no-fix",
+                "--output-format=concise",
+                "--exit-zero",
+                "--stdin-filename", "snippet.py",
+                "-",
+            ],
+            input=code, capture_output=True, text=True, timeout=15,
+            encoding="utf-8", errors="replace",
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        logger.debug("ruff diagnostics skipped: %s", exc)
+        return ""
+    out = (proc.stdout or "").strip()
+    if not out:
+        return ""
+    # Cap to ~40 lines to avoid blowing up the prompt on noisy code.
+    lines = out.splitlines()
+    if len(lines) > 40:
+        lines = lines[:40] + [f"... ({len(out.splitlines()) - 40} more)"]
+    return "\n".join(lines)
+
+
+def _unique_filepath(target_dir: str, filename: str) -> str:
+    """Return a path inside *target_dir* that does not yet exist.
+
+    If ``target_dir/filename`` already exists, append ``_2``, ``_3``, ... before
+    the extension until a free slot is found. Prevents silently overwriting
+    previously generated artifacts when the LLM picks a recurring filename.
+    """
+    candidate = os.path.join(target_dir, filename)
+    if not os.path.exists(candidate):
+        return candidate
+    stem, ext = os.path.splitext(filename)
+    for i in range(2, 1000):
+        candidate = os.path.join(target_dir, f"{stem}_{i}{ext}")
+        if not os.path.exists(candidate):
+            return candidate
+    # Extremely unlikely; fall back to timestamp suffix.
+    return os.path.join(target_dir, f"{stem}_{int(time.time())}{ext}")
+
+
+def _atomic_write(filepath: str, content: str) -> None:
+    """Write *content* to *filepath* atomically (temp file + os.replace).
+
+    Eliminates the half-written-file failure mode where a crash mid-`write`
+    would leave a corrupt artifact. The temp file is created in the same
+    directory so ``os.replace`` stays on a single filesystem.
+    """
+    target_dir = os.path.dirname(filepath) or "."
+    tmp_path = f"{filepath}.tmp.{os.getpid()}.{int(time.time() * 1000)}"
+    try:
+        with open(tmp_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(content)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except OSError:
+                # fsync unsupported on some FSes (e.g. some Windows shares); ignore.
+                pass
+        os.replace(tmp_path, filepath)
+    except Exception:
+        # Clean up temp file on any failure so we don't litter the directory.
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
+    # silence unused-name warning
+    _ = target_dir
 
 
 def _call_with_retry(fn, retries: int = 2, delay: float = 1.5):
@@ -59,6 +233,10 @@ def _trim(text: str, max_chars: int = _MAX_CONTEXT) -> str:
     """
     if len(text) <= max_chars:
         return text
+    logger.warning(
+        "_trim: input length %d exceeds max_chars %d — middle section will be dropped.",
+        len(text), max_chars,
+    )
     head_chars = max_chars - _TAIL_CHARS
     if head_chars <= 0:
         # _TAIL_CHARS >= max_chars: preserve the tail only, but warn in case of
@@ -89,6 +267,14 @@ def execute(cmd: str, jarvis) -> str:
     if not request:
         return "Що саме розробити за допомогою ланцюжка агентів?"
 
+    # Cooperative cancellation helper. ``jarvis.cancel_event`` is set by
+    # main.JarvisUltimate._request_cancel() (e.g. on "stop" voice trigger).
+    # Older Jarvis instances may not expose the attribute — degrade gracefully.
+    cancel_event = getattr(jarvis, "cancel_event", None)
+
+    def _cancelled() -> bool:
+        return bool(cancel_event and cancel_event.is_set())
+
     # ── Stage 1: Architect ────────────────────────────────────────────────────
     jarvis.audio.speak("Архітектор аналізує задачу та проєктує структуру рішення.")
 
@@ -106,100 +292,229 @@ def execute(cmd: str, jarvis) -> str:
 
     logger.debug("Architect output length: %d", len(arch_output))
 
-    # ── Stage 2: Developer ────────────────────────────────────────────────────
-    jarvis.audio.speak("Розробник пише код за планом архітектора.")
+    if _cancelled():
+        return "Ланцюжок агентів зупинено за запитом користувача."
 
-    dev_context = _trim(arch_output)
-    dev_label = f"скорочено до {_MAX_CONTEXT} символів" if len(arch_output) > _MAX_CONTEXT else "повний текст"
-    dev_prompt = (
-        f"Ти — Senior Python Developer. Задача: '{request}'.\n"
-        f"Архітектурний план ({dev_label}):\n"
-        f"{dev_context}\n\n"
-        f"Напиши повну реалізацію на Python. Вимоги:\n"
-        f"- Type annotations (PEP 484) на всіх функціях.\n"
-        f"- Google-style docstrings для публічних функцій.\n"
-        f"- Конкретні типи виключень у except (не bare except).\n"
-        f"- Логування через logging, не print.\n"
-        f"- Поверни відповідь СТРОГО у форматі:\n"
-        f"FILENAME: назва_файлу.py\n"
-        f"CODE:\n"
-        f"<тільки чистий Python код без markdown-огорожі>"
-    )
-    dev_output = _call_with_retry(lambda: jarvis.llm.generate_response(dev_prompt, is_system_call=True))
-    if not dev_output:
-        return "Помилка на етапі Розробника."
+    # ── Stage 2-3: Developer ↔ Reviewer self-correction loop ─────────────────
+    # The Reviewer either APPROVES or returns concrete REQUIRED_CHANGES that
+    # the Developer addresses on the next iteration. Loop exits early when
+    # APPROVED or after _MAX_REVIEW_ITERATIONS (whichever first).
+    dev_output = None
+    review_feedback = ""
+    approved = False
 
-    logger.debug("Developer output length: %d", len(dev_output))
+    for iteration in range(1, _MAX_REVIEW_ITERATIONS + 1):
+        # ---- Developer turn ----
+        if iteration == 1:
+            jarvis.audio.speak("Розробник пише код за планом архітектора.")
+            dev_context = _trim(arch_output)
+            dev_label = (
+                f"скорочено до {_MAX_CONTEXT} символів"
+                if len(arch_output) > _MAX_CONTEXT else "повний текст"
+            )
+            dev_prompt = (
+                f"Ти — Senior Python Developer. Задача: '{request}'.\n"
+                f"Архітектурний план ({dev_label}):\n"
+                f"{dev_context}\n\n"
+                f"Напиши повну реалізацію на Python. Вимоги:\n"
+                f"- Type annotations (PEP 484) на всіх функціях.\n"
+                f"- Google-style docstrings для публічних функцій.\n"
+                f"- Конкретні типи виключень у except (не bare except).\n"
+                f"- Логування через logging, не print.\n"
+                f"- Поверни відповідь СТРОГО у форматі:\n"
+                f"FILENAME: назва_файлу.py\n"
+                f"CODE:\n"
+                f"<тільки чистий Python код без markdown-огорожі>"
+            )
+        else:
+            jarvis.audio.speak(f"Розробник вносить виправлення, ітерація {iteration}.")
+            dev_context = _trim(dev_output or "")
+            dev_prompt = (
+                f"Ти — Senior Python Developer. Задача: '{request}'.\n"
+                f"Попередня версія коду:\n{dev_context}\n\n"
+                f"Зауваження рев'ювера, які ОБОВ'ЯЗКОВО виправити:\n"
+                f"{_trim(review_feedback)}\n\n"
+                f"Поверни виправлену повну версію СТРОГО у форматі:\n"
+                f"FILENAME: назва_файлу.py\n"
+                f"CODE:\n"
+                f"<тільки чистий Python код без markdown-огорожі>"
+            )
 
-    # ── Stage 3: Reviewer ─────────────────────────────────────────────────────
-    jarvis.audio.speak("Рев'ювер перевіряє код на помилки та безпеку.")
+        dev_output = _call_with_retry(
+            lambda: jarvis.llm.generate_response(dev_prompt, is_system_call=True)
+        )
+        if not dev_output:
+            return "Помилка на етапі Розробника."
 
-    rev_context = _trim(dev_output)
-    rev_label = f"скорочено до {_MAX_CONTEXT} символів" if len(dev_output) > _MAX_CONTEXT else "повний текст"
-    rev_prompt = (
-        f"Ти — Senior Code Reviewer. Задача: '{request}'.\n"
-        f"Перевір наступний код ({rev_label}):\n"
-        f"{rev_context}\n\n"
-        f"Знайди та виправ:\n"
-        f"1. Логічні помилки та помилки часу виконання.\n"
-        f"2. Порушення PEP 8 та PEP 484.\n"
-        f"3. Потенційні вразливості безпеки.\n"
-        f"4. Відсутню обробку виключень.\n"
-        f"ОБОВ'ЯЗКОВО поверни відповідь СТРОГО у форматі нижче — жодного тексту поза ним:\n"
-        f"FILENAME: назва_файлу.py\n"
-        f"CODE:\n"
-        f"<тільки чистий Python код, без markdown-огорожі, тобто без символів ```>"
-    )
-    rev_output = _call_with_retry(lambda: jarvis.llm.generate_response(rev_prompt, is_system_call=True))
-    if not rev_output:
-        return "Помилка на етапі Рев'юера."
+        logger.debug("Developer iteration %d output length: %d", iteration, len(dev_output))
 
-    logger.debug("Reviewer output length: %d", len(rev_output))
+        if _cancelled():
+            return "Ланцюжок агентів зупинено за запитом користувача."
 
-    # ── Stage 4: Refactorer ───────────────────────────────────────────────────
+        # ---- Reviewer turn ----
+        jarvis.audio.speak("Рев'ювер перевіряє код на помилки та безпеку.")
+        rev_context = _trim(dev_output)
+        rev_label = (
+            f"скорочено до {_MAX_CONTEXT} символів"
+            if len(dev_output) > _MAX_CONTEXT else "повний текст"
+        )
+        # Pre-enrich the Reviewer prompt with REAL static-analysis findings.
+        # When ruff is installed we extract the actual code (not the FILENAME:
+        # header) and pass its diagnostics — this anchors the LLM in concrete
+        # issues instead of speculative ones, dramatically improving review
+        # quality. When ruff is absent the section is omitted gracefully.
+        _, dev_clean_code = _parse_filename_and_code(dev_output)
+        ruff_section = ""
+        if dev_clean_code:
+            diagnostics = _ruff_diagnostics(dev_clean_code)
+            if diagnostics:
+                ruff_section = (
+                    "\nРеальні зауваження статичного аналізатора (ruff) — "
+                    "враховуй їх першочергово:\n"
+                    f"{diagnostics}\n"
+                )
+        rev_prompt = (
+            f"Ти — Senior Code Reviewer. Задача: '{request}'.\n"
+            f"Перевір наступний код ({rev_label}):\n"
+            f"{rev_context}\n"
+            f"{ruff_section}\n"
+            f"Знайди:\n"
+            f"1. Логічні помилки та помилки часу виконання.\n"
+            f"2. Порушення PEP 8 та PEP 484.\n"
+            f"3. Потенційні вразливості безпеки.\n"
+            f"4. Відсутню обробку виключень.\n\n"
+            f"Поверни відповідь СТРОГО у форматі (одна з двох форм):\n"
+            f"  STATUS: APPROVED\n"
+            f"  COMMENT: <короткий підсумок чому код прийнятний>\n"
+            f"АБО:\n"
+            f"  STATUS: NEEDS_CHANGES\n"
+            f"  REQUIRED_CHANGES:\n"
+            f"  - <конкретна зміна 1>\n"
+            f"  - <конкретна зміна 2>\n"
+            f"  ...\n"
+            f"Жодного коду в цій відповіді — тільки вердикт і зміни."
+        )
+        rev_output = _call_with_retry(
+            lambda: jarvis.llm.generate_response(rev_prompt, is_system_call=True)
+        )
+        if not rev_output:
+            return "Помилка на етапі Рев'юера."
+
+        logger.debug("Reviewer iteration %d output length: %d", iteration, len(rev_output))
+
+        if _cancelled():
+            return "Ланцюжок агентів зупинено за запитом користувача."
+
+        # APPROVED check is permissive: any "STATUS: APPROVED" mention exits.
+        if re.search(r"STATUS:\s*APPROVED", rev_output, re.IGNORECASE):
+            approved = True
+            logger.info("Reviewer APPROVED at iteration %d", iteration)
+            break
+
+        review_feedback = rev_output
+        logger.info(
+            "Reviewer requested changes at iteration %d/%d",
+            iteration, _MAX_REVIEW_ITERATIONS,
+        )
+
+    if not approved:
+        logger.warning(
+            "Review loop exhausted %d iterations without APPROVED — proceeding "
+            "with last Developer output to Refactorer.",
+            _MAX_REVIEW_ITERATIONS,
+        )
+
+    if _cancelled():
+        return "Ланцюжок агентів зупинено за запитом користувача."
+
+    # ── Stage 4: Refactorer (with ast.parse validation & retry) ──────────────
     jarvis.audio.speak("Рефакторер оптимізує та фіналізує код.")
 
-    ref_context = _trim(rev_output)
-    ref_label = f"скорочено до {_MAX_CONTEXT} символів" if len(rev_output) > _MAX_CONTEXT else "повний текст"
-    ref_prompt = (
-        f"Ти — Refactoring Expert. Задача: '{request}'.\n"
-        f"Рефактор та оптимізуй наступний код ({ref_label}):\n"
-        f"{ref_context}\n\n"
-        f"Вимоги до рефакторингу:\n"
-        f"1. Дотримання SOLID, DRY та KISS.\n"
-        f"2. Видалення дублювання та мертвого коду.\n"
-        f"3. Покращення читабельності (змінні, функції, структура).\n"
-        f"4. Оптимізація продуктивності там, де це доцільно.\n"
-        f"ОБОВ'ЯЗКОВО поверни відповідь СТРОГО у форматі нижче — жодного тексту поза ним:\n"
-        f"FILENAME: назва_файлу.py\n"
-        f"CODE:\n"
-        f"<тільки чистий Python код, без markdown-огорожі, тобто без символів ```>"
+    base_ref_context = _trim(dev_output)
+    base_ref_label = (
+        f"скорочено до {_MAX_CONTEXT} символів"
+        if len(dev_output) > _MAX_CONTEXT else "повний текст"
     )
-    ref_output = _call_with_retry(lambda: jarvis.llm.generate_response(ref_prompt, is_system_call=True))
+
+    def _build_refactor_prompt(extra_instruction: str = "") -> str:
+        return (
+            f"Ти — Refactoring Expert. Задача: '{request}'.\n"
+            f"Рефактор та оптимізуй наступний код ({base_ref_label}):\n"
+            f"{base_ref_context}\n\n"
+            f"Вимоги до рефакторингу:\n"
+            f"1. Дотримання SOLID, DRY та KISS.\n"
+            f"2. Видалення дублювання та мертвого коду.\n"
+            f"3. Покращення читабельності (змінні, функції, структура).\n"
+            f"4. Оптимізація продуктивності там, де це доцільно.\n"
+            f"{extra_instruction}"
+            f"ОБОВ'ЯЗКОВО поверни відповідь СТРОГО у форматі нижче — жодного тексту поза ним:\n"
+            f"FILENAME: назва_файлу.py\n"
+            f"CODE:\n"
+            f"<тільки чистий Python код, без markdown-огорожі, тобто без символів ```>"
+        )
+
+    ref_output = _call_with_retry(
+        lambda: jarvis.llm.generate_response(_build_refactor_prompt(), is_system_call=True)
+    )
     if not ref_output:
         return "Помилка на етапі Рефакторера."
 
     logger.debug("Refactorer output length: %d", len(ref_output))
 
-    # ── Parse final output ────────────────────────────────────────────────────
-    filename_match = re.search(r"FILENAME:\s*([^/\\\s]+\.py)", ref_output)
-    filename = filename_match.group(1).strip() if filename_match else f"agent_chain_{int(time.time())}.py"
-    filename = os.path.basename(filename)
-
-    if "CODE:" in ref_output:
-        clean_code = ref_output.split("CODE:", 1)[1].strip()
-    else:
-        # Fallback: the LLM returned text without the required header.
-        # Strip any markdown fences and use whatever code-like content remains.
-        logger.warning(
-            "Refactorer response missing CODE: section — attempting fallback extraction."
-        )
-        clean_code = ref_output.strip()
-
-    clean_code = clean_code.replace("```python", "").replace("```", "").strip()
+    # ── Parse + syntax validation with retry ─────────────────────────────────
+    filename, clean_code = _parse_filename_and_code(ref_output)
 
     if not clean_code:
-        return "Відповідь агентного ланцюжка не містить секцію CODE:."
+        return (
+            "Відповідь агентного ланцюжка не містить секцію CODE: "
+            "та не вдалося знайти блок коду — збереження скасовано."
+        )
+
+    syntax_ok, syntax_err = _validate_syntax(clean_code)
+    syntax_attempt = 0
+    while not syntax_ok and syntax_attempt < _MAX_SYNTAX_RETRIES:
+        syntax_attempt += 1
+        if _cancelled():
+            return "Ланцюжок агентів зупинено за запитом користувача."
+
+        logger.warning(
+            "Refactorer output failed ast.parse (%s) — retry %d/%d",
+            syntax_err, syntax_attempt, _MAX_SYNTAX_RETRIES,
+        )
+        jarvis.audio.speak(f"Виявлено синтаксичну помилку, спроба виправлення {syntax_attempt}.")
+
+        fix_instruction = (
+            f"5. ВАЖЛИВО: попередня версія мала синтаксичну помилку: '{syntax_err}'. "
+            f"Виправ її та переконайся, що код парситься Python інтерпретатором.\n"
+        )
+        ref_output = _call_with_retry(
+            lambda: jarvis.llm.generate_response(
+                _build_refactor_prompt(fix_instruction), is_system_call=True
+            )
+        )
+        if not ref_output:
+            return "Помилка на етапі Рефакторера під час виправлення синтаксису."
+
+        filename, clean_code = _parse_filename_and_code(ref_output)
+        if not clean_code:
+            return "Виправлена відповідь Рефакторера не містить коду."
+        syntax_ok, syntax_err = _validate_syntax(clean_code)
+
+    if not syntax_ok:
+        return (
+            f"Згенерований код не пройшов синтаксичну перевірку після "
+            f"{_MAX_SYNTAX_RETRIES} спроб виправлення: {syntax_err}"
+        )
+
+    # ── Auto-format (best-effort: ruff + black if available) ─────────────────
+    formatted_code = _autoformat(clean_code)
+    # Re-validate after formatting in case a formatter mangled something
+    # (shouldn't happen for valid code, but better safe than sorry).
+    post_ok, _ = _validate_syntax(formatted_code)
+    if post_ok:
+        clean_code = formatted_code
+    else:
+        logger.warning("Auto-format produced invalid syntax — keeping unformatted code.")
 
     # ── Safety check ──────────────────────────────────────────────────────────
     safe, bad_pattern = check_code_safety(clean_code)
@@ -213,8 +528,12 @@ def execute(cmd: str, jarvis) -> str:
     if not os.path.realpath(filepath).startswith(target_dir + os.sep):
         return "Назва файлу від агентів є некоректною — збереження скасовано."
 
-    with open(filepath, "w", encoding="utf-8") as f:
-        f.write(clean_code)
+    # Avoid silently overwriting prior runs that picked the same filename.
+    filepath = _unique_filepath(target_dir, filename)
+    final_filename = os.path.basename(filepath)
 
-    jarvis.audio.speak(f"Готово! Ланцюжок агентів завершив роботу. Файл {filename} збережено.")
-    return f"Агентний ланцюжок завершено. Скрипт '{filename}' збережено у {target_dir}."
+    # Atomic write — eliminates half-written file on crash mid-write.
+    _atomic_write(filepath, clean_code)
+
+    jarvis.audio.speak(f"Готово! Ланцюжок агентів завершив роботу. Файл {final_filename} збережено.")
+    return f"Агентний ланцюжок завершено. Скрипт '{final_filename}' збережено у {target_dir}."

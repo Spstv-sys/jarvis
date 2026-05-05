@@ -27,6 +27,14 @@ except ImportError:
     _OWW_AVAILABLE = False
 import pyaudio
 
+# Allow running this module as a script (python core/audio_manager.py) by
+# ensuring the project root is on sys.path before importing top-level `config`.
+if __name__ == "__main__" and __package__ in (None, ""):
+    import sys
+    _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+    if _PROJECT_ROOT not in sys.path:
+        sys.path.insert(0, _PROJECT_ROOT)
+
 import config
 
 logger = logging.getLogger(__name__)

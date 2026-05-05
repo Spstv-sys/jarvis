@@ -7,6 +7,7 @@ import queue
 import logging
 import logging.handlers
 import shutil
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 import config
@@ -128,6 +129,20 @@ class JarvisUltimate:
         self.stop_event = threading.Event()
         keyboard.add_hotkey('esc', self.stop_event.set)
 
+        # Cooperative cancellation flag for long-running skills (e.g. multi-stage
+        # agent chain). Set by the "stop_voice" trigger via _request_cancel().
+        # Skills SHOULD check ``jarvis.cancel_event.is_set()`` between expensive
+        # steps and bail out early. Cleared automatically before each new command.
+        self.cancel_event = threading.Event()
+
+        # Bounded executor for command processing. Replaces unbounded
+        # ``threading.Thread().start()`` per command — caps concurrency so
+        # rapid-fire commands cannot exhaust threads/memory.
+        self._brain_pool = ThreadPoolExecutor(
+            max_workers=config.BRAIN_MAX_WORKERS,
+            thread_name_prefix="BrainWorker",
+        )
+
         self.input_queue  = queue.Queue()
         self.output_queue = queue.Queue()
 
@@ -205,6 +220,7 @@ class JarvisUltimate:
                     self.ui_callback("Степан", cmd)
                 if any(w in cmd for w in config.TRIGGERS["stop_voice"]):
                     print(f"{Fore.RED}🛑 Екстрене переривання голосу!")
+                    self._request_cancel()
                     self.output_queue.put("<CLEAR_QUEUE>")
                     if self.ui_callback:
                         self.ui_callback("STATUS", "Озвучку зупинено. Очікування...")
@@ -218,27 +234,40 @@ class JarvisUltimate:
     # ------------------------------------------------------------------
     # PROCESSING LOOP  (Problem 2: single implementation, used by run/server/hub)
     # ------------------------------------------------------------------
+    def _request_cancel(self) -> None:
+        """Signal cooperative cancellation to all running BrainWorkers.
+
+        Long-running skills check :attr:`cancel_event` between stages and
+        terminate early. The flag is auto-cleared by :meth:`_process_command`
+        before each new command.
+        """
+        self.cancel_event.set()
+        logger.info("Cancellation requested — running skills should bail out.")
+
     def start_processing_loop(self) -> None:
         """Main command-processing loop.
 
-        Pulls commands from ``input_queue`` and dispatches each one in a
-        dedicated BrainWorker thread.  Runs until ``self.is_running`` is False.
-        Call this method from any entry-point (CLI, server, UI hub).
+        Pulls commands from ``input_queue`` and submits each one to a bounded
+        thread pool (:attr:`_brain_pool`). Concurrency is capped by
+        ``config.BRAIN_MAX_WORKERS`` to prevent thread/memory exhaustion under
+        rapid command bursts. Runs until :attr:`is_running` is False.
         """
         while self.is_running:
             try:
                 cmd = self.input_queue.get(timeout=1)
                 if cmd:
-                    threading.Thread(
-                        target=self._process_command,
-                        args=(cmd,),
-                        daemon=True,
-                        name="BrainWorker",
-                    ).start()
+                    self._brain_pool.submit(self._process_command, cmd)
             except queue.Empty:
                 pass
             except KeyboardInterrupt:
                 break
+
+        # Drain pool on shutdown (do not wait forever — daemon threads will die
+        # with the process if a worker is stuck on a network call).
+        try:
+            self._brain_pool.shutdown(wait=True, cancel_futures=True)
+        except Exception as exc:
+            logger.error(f"BrainPool shutdown error: {exc}")
 
     def run(self) -> None:
         self.start_ears()
@@ -259,6 +288,28 @@ class JarvisUltimate:
         sys.exit(0)
 
     def _process_command(self, cmd: str) -> None:
+        # Reset cancellation flag for each new command so a previous cancel
+        # request does not silently abort an unrelated next command.
+        self.cancel_event.clear()
+
+        # Watchdog: log a warning if the command exceeds the configured
+        # timeout. We cannot safely kill a Python thread, but a visible warning
+        # tells the operator that a skill is hung (e.g. LLM provider stalled).
+        timeout = config.BRAIN_COMMAND_TIMEOUT
+        cmd_preview = cmd if len(cmd) <= 80 else cmd[:77] + "..."
+
+        def _watchdog():
+            logger.warning(
+                "BrainWorker watchdog: command %r still running after %.0fs. "
+                "Possible hang in LLM/skill — consider switching provider or "
+                "issuing a stop command.",
+                cmd_preview, timeout,
+            )
+
+        watchdog = threading.Timer(timeout, _watchdog)
+        watchdog.daemon = True
+        watchdog.start()
+
         try:
             status = self.execute_command(cmd)
             if status == "STOP":
@@ -267,6 +318,7 @@ class JarvisUltimate:
             logger.error(f"BrainWorker: необроблена помилка: {e}", exc_info=True)
             self.audio.speak("Виникла системна помилка.")
         finally:
+            watchdog.cancel()
             self.input_queue.task_done()
 
     # ------------------------------------------------------------------
@@ -314,6 +366,31 @@ class JarvisUltimate:
 
         if self.dynamic_skills:
             print(f"{Fore.MAGENTA}🧠 Завантажено динамічних навичок: {len(self.dynamic_skills)}")
+            self._warn_on_skill_trigger_collisions()
+
+    def _warn_on_skill_trigger_collisions(self) -> None:
+        """Warn when a dynamic skill trigger collides with a built-in route trigger.
+
+        Dynamic skills are dispatched before built-in routes in
+        :meth:`execute_command`, so an overly broad trigger (e.g. "погода")
+        in a user-generated plugin can silently shadow core functionality.
+        Logging this on load makes the conflict visible.
+        """
+        builtin_triggers: dict[str, str] = {}
+        for route_key, trigger_list in config.TRIGGERS.items():
+            for trig in trigger_list:
+                builtin_triggers[trig.lower()] = route_key
+
+        for skill in self.dynamic_skills:
+            for trig in skill['triggers']:
+                shadowed = builtin_triggers.get(trig.lower())
+                if shadowed:
+                    msg = (
+                        f"Skill '{skill['name']}' trigger {trig!r} shadows "
+                        f"built-in route '{shadowed}'. Built-in command will not run."
+                    )
+                    logger.warning(msg)
+                    print(f"{Fore.YELLOW}⚠ {msg}")
 
     # ------------------------------------------------------------------
     # BACKGROUND MONITORS
