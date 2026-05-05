@@ -1,3 +1,4 @@
+import ast
 import os
 import re
 import time
@@ -9,7 +10,6 @@ logger = logging.getLogger(__name__)
 TRIGGERS = [
     "розробка агента",
     "ланцюг агентів",
-    "напиши код панкожком агентів",
     "напиши код ланцюжком агентів",
     "агентна розробка",
     "розроби через агентів",
@@ -23,24 +23,80 @@ _FORBIDDEN_PATTERNS = [
     r'\bexec\b',
 ]
 
+_FORBIDDEN_IMPORTS: frozenset[str] = frozenset({
+    "subprocess", "ctypes", "importlib", "builtins",
+})
+_FORBIDDEN_CALLS: frozenset[str] = frozenset({
+    "eval", "exec", "__import__", "compile",
+})
+_FORBIDDEN_ATTR_CALLS: frozenset[str] = frozenset({
+    "system", "popen", "run", "call", "check_output", "check_call",
+})
+
 # Trim context passed between agents to avoid exceeding LLM token limits.
-# At ~4 chars/token this maps to roughly 750 tokens — well within all providers.
-_MAX_CONTEXT = 3000
+# At ~4 chars/token 8000 chars ≈ 2000 tokens — fits comfortably in all providers
+# while giving agents enough context to process larger generated files.
+_MAX_CONTEXT = 8000
+
+# Number of tail chars to preserve when the text exceeds _MAX_CONTEXT.
+# Keeping both the beginning (structure/imports) and the end (final functions)
+# reduces the chance of an agent receiving incomplete code.
+_TAIL_CHARS = 2000
 
 
 def _is_safe_code(code: str) -> tuple[bool, str]:
-    """Return (True, '') if code is safe, (False, pattern) otherwise."""
+    """Return (True, '') if code is safe, (False, reason) otherwise.
+
+    Applies two layers of analysis:
+    1. Quick regex scan for common dangerous patterns.
+    2. Full AST walk to catch forbidden imports and function calls.
+    """
+    # Layer 1: regex
     for pattern in _FORBIDDEN_PATTERNS:
         if re.search(pattern, code):
             return False, pattern
+
+    # Layer 2: AST
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as exc:
+        return False, f"SyntaxError: {exc}"
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                top = alias.name.split(".")[0]
+                if top in _FORBIDDEN_IMPORTS:
+                    return False, f"forbidden import: {alias.name}"
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            top = module.split(".")[0]
+            if top in _FORBIDDEN_IMPORTS:
+                return False, f"forbidden import: {module}"
+        elif isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name) and node.func.id in _FORBIDDEN_CALLS:
+                return False, f"forbidden call: {node.func.id}"
+            if isinstance(node.func, ast.Attribute) and node.func.attr in _FORBIDDEN_ATTR_CALLS:
+                return False, f"forbidden attribute call: {node.func.attr}"
+
     return True, ""
 
 
 def _trim(text: str, max_chars: int = _MAX_CONTEXT) -> str:
-    """Trim text to at most max_chars characters, keeping the head (most important context)."""
+    """Trim *text* to at most *max_chars* characters.
+
+    When truncation is needed the function preserves the first
+    ``max_chars - _TAIL_CHARS`` characters (structure/imports) plus the last
+    ``_TAIL_CHARS`` characters (final functions/classes), separated by a short
+    ellipsis marker.  This reduces the chance of passing incomplete code to the
+    next agent.
+    """
     if len(text) <= max_chars:
         return text
-    return text[:max_chars]
+    head_chars = max_chars - _TAIL_CHARS
+    if head_chars <= 0:
+        return text[-max_chars:]
+    return text[:head_chars] + "\n# ... (скорочено) ...\n" + text[-_TAIL_CHARS:]
 
 
 def execute(cmd: str, jarvis) -> str:
@@ -115,10 +171,10 @@ def execute(cmd: str, jarvis) -> str:
         f"2. Порушення PEP 8 та PEP 484.\n"
         f"3. Потенційні вразливості безпеки.\n"
         f"4. Відсутню обробку виключень.\n"
-        f"Поверни ТІЛЬКИ виправлений код у форматі:\n"
+        f"ОБОВ'ЯЗКОВО поверни відповідь СТРОГО у форматі нижче — жодного тексту поза ним:\n"
         f"FILENAME: назва_файлу.py\n"
         f"CODE:\n"
-        f"<тільки чистий Python код без markdown-огорожі>"
+        f"<тільки чистий Python код без markdown-огорожі ```>"
     )
     rev_output = jarvis.llm.generate_response(rev_prompt, is_system_call=True)
     if not rev_output:
@@ -139,10 +195,10 @@ def execute(cmd: str, jarvis) -> str:
         f"2. Видалення дублювання та мертвого коду.\n"
         f"3. Покращення читабельності (змінні, функції, структура).\n"
         f"4. Оптимізація продуктивності там, де це доцільно.\n"
-        f"Поверни ТІЛЬКИ фінальний код у форматі:\n"
+        f"ОБОВ'ЯЗКОВО поверни відповідь СТРОГО у форматі нижче — жодного тексту поза ним:\n"
         f"FILENAME: назва_файлу.py\n"
         f"CODE:\n"
-        f"<тільки чистий Python код без markdown-огорожі>"
+        f"<тільки чистий Python код без markdown-огорожі ```>"
     )
     ref_output = jarvis.llm.generate_response(ref_prompt, is_system_call=True)
     if not ref_output:
@@ -155,10 +211,20 @@ def execute(cmd: str, jarvis) -> str:
     filename = filename_match.group(1).strip() if filename_match else f"agent_chain_{int(time.time())}.py"
     filename = os.path.basename(filename)
 
-    parts = ref_output.split("CODE:", 1)
-    if len(parts) < 2:
+    if "CODE:" in ref_output:
+        clean_code = ref_output.split("CODE:", 1)[1].strip()
+    else:
+        # Fallback: the LLM returned text without the required header.
+        # Strip any markdown fences and use whatever code-like content remains.
+        logger.warning(
+            "Refactorer response missing CODE: section — attempting fallback extraction."
+        )
+        clean_code = ref_output.strip()
+
+    clean_code = clean_code.replace("```python", "").replace("```", "").strip()
+
+    if not clean_code:
         return "Відповідь агентного ланцюжка не містить секцію CODE:."
-    clean_code = parts[1].strip().replace("```python", "").replace("```", "").strip()
 
     # ── Safety check ──────────────────────────────────────────────────────────
     safe, bad_pattern = _is_safe_code(clean_code)
