@@ -70,6 +70,10 @@ def _is_safe_code(code: str) -> tuple[bool, str]:
                     return False, f"forbidden import: {alias.name}"
         elif isinstance(node, ast.ImportFrom):
             module = node.module or ""
+            if not module:
+                # Relative import with no module name (e.g. `from . import foo`)
+                # cannot target a forbidden top-level package, so it is safe.
+                continue
             top = module.split(".")[0]
             if top in _FORBIDDEN_IMPORTS:
                 return False, f"forbidden import: {module}"
@@ -95,6 +99,12 @@ def _trim(text: str, max_chars: int = _MAX_CONTEXT) -> str:
         return text
     head_chars = max_chars - _TAIL_CHARS
     if head_chars <= 0:
+        # _TAIL_CHARS >= max_chars: preserve the tail only, but warn in case of
+        # misconfiguration so the developer can notice and fix the constants.
+        logger.warning(
+            "_trim: _TAIL_CHARS (%d) >= max_chars (%d); returning tail only.",
+            _TAIL_CHARS, max_chars,
+        )
         return text[-max_chars:]
     return text[:head_chars] + "\n# ... (скорочено) ...\n" + text[-_TAIL_CHARS:]
 
@@ -174,7 +184,7 @@ def execute(cmd: str, jarvis) -> str:
         f"ОБОВ'ЯЗКОВО поверни відповідь СТРОГО у форматі нижче — жодного тексту поза ним:\n"
         f"FILENAME: назва_файлу.py\n"
         f"CODE:\n"
-        f"<тільки чистий Python код без markdown-огорожі ```>"
+        f"<тільки чистий Python код, без markdown-огорожі, тобто без символів ```>"
     )
     rev_output = jarvis.llm.generate_response(rev_prompt, is_system_call=True)
     if not rev_output:
@@ -198,7 +208,7 @@ def execute(cmd: str, jarvis) -> str:
         f"ОБОВ'ЯЗКОВО поверни відповідь СТРОГО у форматі нижче — жодного тексту поза ним:\n"
         f"FILENAME: назва_файлу.py\n"
         f"CODE:\n"
-        f"<тільки чистий Python код без markdown-огорожі ```>"
+        f"<тільки чистий Python код, без markdown-огорожі, тобто без символів ```>"
     )
     ref_output = jarvis.llm.generate_response(ref_prompt, is_system_call=True)
     if not ref_output:
