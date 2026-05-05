@@ -17,6 +17,7 @@ TRIGGERS = [
 
 _FORBIDDEN_PATTERNS = [
     r'\bos\.system\b',
+    r'\bsubprocess\b',
     r'\b__import__\b',
     r'\beval\b',
     r'\bexec\b',
@@ -36,10 +37,10 @@ def _is_safe_code(code: str) -> tuple[bool, str]:
 
 
 def _trim(text: str, max_chars: int = _MAX_CONTEXT) -> str:
-    """Trim text to at most max_chars characters, keeping the tail (most recent output)."""
+    """Trim text to at most max_chars characters, keeping the head (most important context)."""
     if len(text) <= max_chars:
         return text
-    return text[-max_chars:]
+    return text[:max_chars]
 
 
 def execute(cmd: str, jarvis) -> str:
@@ -150,14 +151,11 @@ def execute(cmd: str, jarvis) -> str:
     logger.debug("Refactorer output length: %d", len(ref_output))
 
     # ── Parse final output ────────────────────────────────────────────────────
-    try:
-        filename_match = re.search(r"FILENAME:\s*([^/\\\s]+\.py)", ref_output)
-        filename = filename_match.group(1).strip() if filename_match else f"agent_chain_{int(time.time())}.py"
-        filename = os.path.basename(filename)
-    except AttributeError:
-        return "Не вдалося визначити ім'я файлу з відповіді агентного ланцюжка."
+    filename_match = re.search(r"FILENAME:\s*([^/\\\s]+\.py)", ref_output)
+    filename = filename_match.group(1).strip() if filename_match else f"agent_chain_{int(time.time())}.py"
+    filename = os.path.basename(filename)
 
-    parts = ref_output.split("CODE:")
+    parts = ref_output.split("CODE:", 1)
     if len(parts) < 2:
         return "Відповідь агентного ланцюжка не містить секцію CODE:."
     clean_code = parts[1].strip().replace("```python", "").replace("```", "").strip()
