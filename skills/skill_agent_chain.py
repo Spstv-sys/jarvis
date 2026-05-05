@@ -1,9 +1,9 @@
-import ast
 import os
 import re
 import time
 import logging
 import config
+from core.utils import check_code_safety
 
 logger = logging.getLogger(__name__)
 
@@ -14,24 +14,6 @@ TRIGGERS = [
     "агентна розробка",
     "розроби через агентів",
 ]
-
-_FORBIDDEN_PATTERNS = [
-    r'\bos\.system\b',
-    r'\bsubprocess\b',
-    r'\b__import__\b',
-    r'\beval\b',
-    r'\bexec\b',
-]
-
-_FORBIDDEN_IMPORTS: frozenset[str] = frozenset({
-    "subprocess", "ctypes", "importlib", "builtins",
-})
-_FORBIDDEN_CALLS: frozenset[str] = frozenset({
-    "eval", "exec", "__import__", "compile",
-})
-_FORBIDDEN_ATTR_CALLS: frozenset[str] = frozenset({
-    "system", "popen", "run", "call", "check_output", "check_call",
-})
 
 # Trim context passed between agents to avoid exceeding LLM token limits.
 # At ~4 chars/token 8000 chars ≈ 2000 tokens — fits comfortably in all providers
@@ -44,46 +26,26 @@ _MAX_CONTEXT = 8000
 _TAIL_CHARS = 2000
 
 
-def _is_safe_code(code: str) -> tuple[bool, str]:
-    """Return (True, '') if code is safe, (False, reason) otherwise.
+def _call_with_retry(fn, retries: int = 2, delay: float = 1.5):
+    """Call *fn()* up to ``retries + 1`` times, sleeping *delay* seconds between attempts.
 
-    Applies two layers of analysis:
-    1. Quick regex scan for common dangerous patterns.
-    2. Full AST walk to catch forbidden imports and function calls.
+    Args:
+        fn:      A zero-argument callable to invoke.
+        retries: Number of additional attempts after the first failure.
+        delay:   Seconds to wait between attempts.
+
+    Returns:
+        The first truthy return value of *fn*, or the last return value when
+        all attempts are exhausted.
     """
-    # Layer 1: regex
-    for pattern in _FORBIDDEN_PATTERNS:
-        if re.search(pattern, code):
-            return False, pattern
-
-    # Layer 2: AST
-    try:
-        tree = ast.parse(code)
-    except SyntaxError as exc:
-        return False, f"SyntaxError: {exc}"
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                top = alias.name.split(".")[0]
-                if top in _FORBIDDEN_IMPORTS:
-                    return False, f"forbidden import: {alias.name}"
-        elif isinstance(node, ast.ImportFrom):
-            module = node.module or ""
-            if not module:
-                # Relative import with no module name (e.g. `from . import foo`)
-                # cannot target a forbidden top-level package, so it is safe.
-                continue
-            top = module.split(".")[0]
-            if top in _FORBIDDEN_IMPORTS:
-                return False, f"forbidden import: {module}"
-        elif isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name) and node.func.id in _FORBIDDEN_CALLS:
-                return False, f"forbidden call: {node.func.id}"
-            if isinstance(node.func, ast.Attribute) and node.func.attr in _FORBIDDEN_ATTR_CALLS:
-                return False, f"forbidden attribute call: {node.func.attr}"
-
-    return True, ""
+    result = None
+    for attempt in range(retries + 1):
+        result = fn()
+        if result:
+            return result
+        if attempt < retries:
+            time.sleep(delay)
+    return result
 
 
 def _trim(text: str, max_chars: int = _MAX_CONTEXT) -> str:
@@ -138,7 +100,7 @@ def execute(cmd: str, jarvis) -> str:
         f"- Ключові технічні рішення та їхні обґрунтування.\n"
         f"Відповідай виключно технічним текстом, без коду."
     )
-    arch_output = jarvis.llm.generate_response(arch_prompt, is_system_call=True)
+    arch_output = _call_with_retry(lambda: jarvis.llm.generate_response(arch_prompt, is_system_call=True))
     if not arch_output:
         return "Помилка на етапі Архітектора."
 
@@ -148,9 +110,10 @@ def execute(cmd: str, jarvis) -> str:
     jarvis.audio.speak("Розробник пише код за планом архітектора.")
 
     dev_context = _trim(arch_output)
+    dev_label = f"скорочено до {_MAX_CONTEXT} символів" if len(arch_output) > _MAX_CONTEXT else "повний текст"
     dev_prompt = (
         f"Ти — Senior Python Developer. Задача: '{request}'.\n"
-        f"Архітектурний план (скорочено до {_MAX_CONTEXT} символів):\n"
+        f"Архітектурний план ({dev_label}):\n"
         f"{dev_context}\n\n"
         f"Напиши повну реалізацію на Python. Вимоги:\n"
         f"- Type annotations (PEP 484) на всіх функціях.\n"
@@ -162,7 +125,7 @@ def execute(cmd: str, jarvis) -> str:
         f"CODE:\n"
         f"<тільки чистий Python код без markdown-огорожі>"
     )
-    dev_output = jarvis.llm.generate_response(dev_prompt, is_system_call=True)
+    dev_output = _call_with_retry(lambda: jarvis.llm.generate_response(dev_prompt, is_system_call=True))
     if not dev_output:
         return "Помилка на етапі Розробника."
 
@@ -172,9 +135,10 @@ def execute(cmd: str, jarvis) -> str:
     jarvis.audio.speak("Рев'ювер перевіряє код на помилки та безпеку.")
 
     rev_context = _trim(dev_output)
+    rev_label = f"скорочено до {_MAX_CONTEXT} символів" if len(dev_output) > _MAX_CONTEXT else "повний текст"
     rev_prompt = (
         f"Ти — Senior Code Reviewer. Задача: '{request}'.\n"
-        f"Перевір наступний код (скорочено до {_MAX_CONTEXT} символів):\n"
+        f"Перевір наступний код ({rev_label}):\n"
         f"{rev_context}\n\n"
         f"Знайди та виправ:\n"
         f"1. Логічні помилки та помилки часу виконання.\n"
@@ -186,7 +150,7 @@ def execute(cmd: str, jarvis) -> str:
         f"CODE:\n"
         f"<тільки чистий Python код, без markdown-огорожі, тобто без символів ```>"
     )
-    rev_output = jarvis.llm.generate_response(rev_prompt, is_system_call=True)
+    rev_output = _call_with_retry(lambda: jarvis.llm.generate_response(rev_prompt, is_system_call=True))
     if not rev_output:
         return "Помилка на етапі Рев'юера."
 
@@ -196,9 +160,10 @@ def execute(cmd: str, jarvis) -> str:
     jarvis.audio.speak("Рефакторер оптимізує та фіналізує код.")
 
     ref_context = _trim(rev_output)
+    ref_label = f"скорочено до {_MAX_CONTEXT} символів" if len(rev_output) > _MAX_CONTEXT else "повний текст"
     ref_prompt = (
         f"Ти — Refactoring Expert. Задача: '{request}'.\n"
-        f"Рефактор та оптимізуй наступний код (скорочено до {_MAX_CONTEXT} символів):\n"
+        f"Рефактор та оптимізуй наступний код ({ref_label}):\n"
         f"{ref_context}\n\n"
         f"Вимоги до рефакторингу:\n"
         f"1. Дотримання SOLID, DRY та KISS.\n"
@@ -210,7 +175,7 @@ def execute(cmd: str, jarvis) -> str:
         f"CODE:\n"
         f"<тільки чистий Python код, без markdown-огорожі, тобто без символів ```>"
     )
-    ref_output = jarvis.llm.generate_response(ref_prompt, is_system_call=True)
+    ref_output = _call_with_retry(lambda: jarvis.llm.generate_response(ref_prompt, is_system_call=True))
     if not ref_output:
         return "Помилка на етапі Рефакторера."
 
@@ -237,7 +202,7 @@ def execute(cmd: str, jarvis) -> str:
         return "Відповідь агентного ланцюжка не містить секцію CODE:."
 
     # ── Safety check ──────────────────────────────────────────────────────────
-    safe, bad_pattern = _is_safe_code(clean_code)
+    safe, bad_pattern = check_code_safety(clean_code)
     if not safe:
         return f"Згенерований код містить небезпечний виклик ({bad_pattern}) та не збережено."
 

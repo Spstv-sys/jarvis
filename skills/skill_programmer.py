@@ -2,6 +2,7 @@ import os
 import re
 import time
 import config
+from core.utils import check_code_safety
 
 TRIGGERS = [
     "напиши код",
@@ -16,22 +17,6 @@ TRIGGERS = [
     "напиши функцію",
     "створи функцію",
 ]
-
-# Patterns blocked in LLM-generated code (mirrors _FORBIDDEN_SKILL_PATTERNS)
-_FORBIDDEN_PATTERNS = [
-    r'\bos\.system\b',
-    r'\b__import__\b',
-    r'\beval\b',
-    r'\bexec\b',
-]
-
-
-def _is_safe_code(code: str) -> tuple[bool, str]:
-    """Return (True, '') if code is safe, (False, pattern) otherwise."""
-    for pattern in _FORBIDDEN_PATTERNS:
-        if re.search(pattern, code):
-            return False, pattern
-    return True, ""
 
 
 def execute(cmd, jarvis):
@@ -76,7 +61,7 @@ def execute(cmd, jarvis):
     except Exception:
         return "Не вдалося розібрати структуру коду від ШІ."
 
-    safe, bad_pattern = _is_safe_code(clean_code)
+    safe, bad_pattern = check_code_safety(clean_code)
     if not safe:
         return f"Згенерований код містить небезпечний виклик ({bad_pattern}) та не збережено."
 
