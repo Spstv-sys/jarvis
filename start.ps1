@@ -47,7 +47,7 @@ function Stop-JarvisBackendProcesses {
 
     $backendProcesses = Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" -ErrorAction SilentlyContinue |
         Where-Object {
-            $_.CommandLine -and $_.CommandLine -match 'server\.py' -and $_.CommandLine -like "*$VenvPython*"
+            $_.CommandLine -and $_.CommandLine -match 'server\.py'
         }
     foreach ($process in @($backendProcesses)) {
         [void]$processIds.Add([int]$process.ProcessId)
