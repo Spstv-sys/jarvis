@@ -429,9 +429,26 @@ class JarvisUltimate:
     def execute_command(self, cmd: str) -> str:
         logger.info(f"Команда: {cmd}")
 
-        # Dynamic skills take priority
+        # Dynamic skills take priority.
+        # For multi-word triggers we also use fuzzy matching so that minor STT
+        # transcription errors (e.g. "агентські" → "агентскі") still fire.
+        cmd_lower = cmd.lower()
         for skill in self.dynamic_skills:
-            if any(self._trigger_in_cmd(t, cmd) for t in skill['triggers']):
+            matched = False
+            for t in skill['triggers']:
+                # 1) fast substring check (handles most cases)
+                if t.lower() in cmd_lower:
+                    matched = True
+                    break
+                # 2) word-boundary regex (handles trailing punctuation etc.)
+                if self._trigger_in_cmd(t, cmd):
+                    matched = True
+                    break
+                # 3) fuzzy fallback for multi-word triggers (handles STT errors)
+                if len(t.split()) >= 2 and self.fuzzy_in_command(cmd, t, threshold=82):
+                    matched = True
+                    break
+            if matched:
                 try:
                     result = skill['func'](cmd, self)
                     if result:
