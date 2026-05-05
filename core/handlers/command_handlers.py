@@ -121,7 +121,7 @@ class CommandHandlers:
             "3. Функція `def execute(cmd: str, jarvis) -> str:` — завжди повертає рядок.\n"
             "4. Type annotations на всіх функціях та нетривіальних змінних.\n"
             "5. Google-style docstring для кожної публічної функції.\n"
-            "6. Специфічна обробка виключень: НЕ `except Exception`, а конкретні типи (ValueError, OSError тощо).\n"
+            "6. Конкретні типи виключень у except: НЕ `except:` та НЕ `except Exception` — використовуй ValueError, OSError тощо.\n"
             "7. Логування через `import logging; logger = logging.getLogger(__name__)` — НЕ print.\n"
             "8. Валідація вхідних аргументів на початку `execute`: перевір, що `cmd` не порожній після strip.\n"
             "9. Лише константи у верхньому регістрі як глобальні змінні (TRIGGERS, MAX_RETRIES тощо).\n"

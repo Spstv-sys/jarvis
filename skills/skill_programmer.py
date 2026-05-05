@@ -54,7 +54,7 @@ def execute(cmd, jarvis):
         f"ВИМОГИ ДО КОДУ (рівень Senior):\n"
         f"- Type annotations на всіх функціях та нетривіальних змінних (PEP 484).\n"
         f"- Google-style docstrings для всіх публічних функцій.\n"
-        f"- Конкретні типи виключень у except (НЕ bare `except Exception`).\n"
+        f"- Конкретні типи виключень у except (НЕ `except:` та НЕ `except Exception` — використовуй ValueError, OSError тощо).\n"
         f"- Логування через `import logging; logger = logging.getLogger(__name__)` замість print.\n"
         f"- Валідація вхідних аргументів.\n"
         f"- Назва файлу: коротка, латиниця, через підкреслення.\n"
