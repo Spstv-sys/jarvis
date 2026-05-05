@@ -112,14 +112,20 @@ class CommandHandlers:
 
         self.audio.speak("Пишу код для нової навички. Це займе кілька секунд.")
         prompt = (
-            "Ти Senior Python Developer. Напиши плагін для голосового асистента Джарвіс.\n"
-            f'Користувач просить: "{request}".\n'
-            "Правила:\n"
-            "1. ПОВЕРНИ ТІЛЬКИ ЧИСТИЙ PYTHON КОД — без пояснень, без markdown, без коментарів.\n"
-            "2. Код ПОВИНЕН мати список `TRIGGERS` — список українських фраз-тригерів.\n"
-            "3. Код ПОВИНЕН мати функцію `def execute(cmd, jarvis):`, яка повертає РЯДОК.\n"
-            "4. НЕ додавай ```python або ``` — тільки голий код.\n"
-            "5. НЕ пиши жодних пояснень до або після коду."
+            "Ти Senior Python Engineer з 10+ роками досвіду.\n"
+            "Напиши плагін для голосового асистента Джарвіс.\n"
+            f'Задача: "{request}".\n\n'
+            "ОБОВ'ЯЗКОВІ ВИМОГИ (рівень Senior):\n"
+            "1. ПОВЕРНИ ТІЛЬКИ ЧИСТИЙ PYTHON КОД — без markdown, без ``` блоків, без пояснень.\n"
+            "2. Перша змінна — `TRIGGERS: list[str]` — список українських фраз-тригерів.\n"
+            "3. Функція `def execute(cmd: str, jarvis) -> str:` — завжди повертає рядок.\n"
+            "4. Type annotations на всіх функціях та нетривіальних змінних.\n"
+            "5. Google-style docstring для кожної публічної функції.\n"
+            "6. Специфічна обробка виключень: НЕ `except Exception`, а конкретні типи (ValueError, OSError тощо).\n"
+            "7. Логування через `import logging; logger = logging.getLogger(__name__)` — НЕ print.\n"
+            "8. Валідація вхідних аргументів на початку `execute`: перевір, що `cmd` не порожній після strip.\n"
+            "9. Лише константи у верхньому регістрі як глобальні змінні (TRIGGERS, MAX_RETRIES тощо).\n"
+            "10. НЕ пиши жодних пояснень або коментарів поза кодом."
         )
         try:
             clean_code = self.llm.generate_response(prompt, is_system_call=True)
@@ -493,7 +499,14 @@ class CommandHandlers:
                 self.audio.speak("Виправляю архітектуру...")
                 fixed = self.llm.generate_response(
                     prompt=(
-                        "Виправ цей код. ПОВЕРНИ ТІЛЬКИ КОД без форматування markdown та коментарів:\n"
+                        "Ти Senior Python Engineer. Рефактор цього коду до рівня Senior:\n"
+                        "- Додай type annotations (PEP 484) на всі функції.\n"
+                        "- Замін bare `except Exception` на конкретні типи виключень.\n"
+                        "- Замін print() на logging.getLogger(__name__).\n"
+                        "- Додай Google-style docstrings де їх немає.\n"
+                        "- Валідуй вхідні аргументи функцій.\n"
+                        "- Дотримуйся SOLID та DRY принципів.\n"
+                        "ПОВЕРНИ ТІЛЬКИ КОД без markdown та пояснень:\n"
                         + content
                     ),
                     is_system_call=True,
@@ -509,9 +522,12 @@ class CommandHandlers:
             else:
                 self.audio.speak("Аналізую логіку...")
                 prompt = (
-                    f"Ти {self.llm.personality_mode} Senior Developer. "
-                    f"Зроби короткий аудіт файлу {filename}. "
-                    f"Поясни 2-3 реченнями що робить цей код і чи є явні недоліки.\n\nКод:\n{content}"
+                    f"Ти Senior Python Engineer. "
+                    f"Проведи короткий code-review файлу {filename}. "
+                    f"Вкажи: (1) що робить код, (2) порушення Senior-рівня "
+                    f"(відсутні type hints, bare except, print замість logging, відсутні docstrings), "
+                    f"(3) одну конкретну пропозицію покращення. "
+                    f"Відповідь — 3-4 речення.\n\nКод:\n{content}"
                 )
                 answer = self.llm.generate_response(prompt, is_system_call=True)
                 if answer:

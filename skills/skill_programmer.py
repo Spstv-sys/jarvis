@@ -46,12 +46,19 @@ def execute(cmd, jarvis):
     jarvis.audio.speak("Аналізую задачу та формую структуру файлу.")
 
     prompt = (
-        f"Ти Senior Python Developer. Завдання: '{request}'.\n"
-        f"Поверни відповідь у форматі:\n"
+        f"Ти Senior Python Engineer з 10+ роками досвіду. Задача: '{request}'.\n\n"
+        f"Поверни відповідь СТРОГО у форматі:\n"
         f"FILENAME: назва_файлу.py\n"
         f"CODE:\n"
-        f"ваш_код\n\n"
-        f"ПРАВИЛО: Назва має бути короткою, латиницею, через підкреслення. Тільки чистий код."
+        f"<код тут>\n\n"
+        f"ВИМОГИ ДО КОДУ (рівень Senior):\n"
+        f"- Type annotations на всіх функціях та нетривіальних змінних (PEP 484).\n"
+        f"- Google-style docstrings для всіх публічних функцій.\n"
+        f"- Конкретні типи виключень у except (НЕ bare `except Exception`).\n"
+        f"- Логування через `import logging; logger = logging.getLogger(__name__)` замість print.\n"
+        f"- Валідація вхідних аргументів.\n"
+        f"- Назва файлу: коротка, латиниця, через підкреслення.\n"
+        f"- ТІЛЬКИ чистий Python код, без markdown, без пояснень поза кодом."
     )
 
     response = jarvis.llm.generate_response(prompt, is_system_call=True)
