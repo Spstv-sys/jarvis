@@ -786,3 +786,166 @@ def test_reviewer_prompt_omits_ruff_section_when_ruff_absent(tmp_sorting, monkey
     reviewer_prompt = j.llm.generate_response.call_args_list[2].args[0]
     assert "ruff" not in reviewer_prompt.lower()
     assert "статичного аналізатора" not in reviewer_prompt
+
+
+# ---------------------------------------------------------------------------
+# 14. AMEND mode
+# ---------------------------------------------------------------------------
+
+def _make_amend_jarvis(responses, with_cancel: bool = True):
+    """Like _make_jarvis but responses use <APPROVED> sentinel too."""
+    return _make_jarvis(responses, with_cancel=with_cancel)
+
+
+# --- helpers ---
+
+def test_find_project_file_exact(tmp_path):
+    (tmp_path / "calc.py").write_text("x=1", encoding="utf-8")
+    found = sac._find_project_file("calc.py", str(tmp_path))
+    assert found == str(tmp_path / "calc.py")
+
+
+def test_find_project_file_no_extension(tmp_path):
+    (tmp_path / "calc.py").write_text("x=1", encoding="utf-8")
+    found = sac._find_project_file("calc", str(tmp_path))
+    assert found == str(tmp_path / "calc.py")
+
+
+def test_find_project_file_case_insensitive(tmp_path):
+    (tmp_path / "Calc.py").write_text("x=1", encoding="utf-8")
+    found = sac._find_project_file("calc.py", str(tmp_path))
+    # On Windows FS is case-insensitive; the returned path must point to the
+    # same file regardless of whether the OS normalised the casing.
+    assert found is not None
+    assert os.path.basename(found).lower() == "calc.py"
+
+
+def test_find_project_file_substring(tmp_path):
+    (tmp_path / "my_calculator.py").write_text("x=1", encoding="utf-8")
+    found = sac._find_project_file("calculator", str(tmp_path))
+    assert found == str(tmp_path / "my_calculator.py")
+
+
+def test_find_project_file_not_found(tmp_path):
+    assert sac._find_project_file("ghost.py", str(tmp_path)) is None
+
+
+def test_find_project_file_missing_dir():
+    assert sac._find_project_file("x.py", "/nonexistent_dir_xyz") is None
+
+
+def test_backup_file_creates_copy(tmp_path):
+    src = tmp_path / "src.py"
+    src.write_text("original", encoding="utf-8")
+    backup = sac._backup_file(str(src))
+    assert os.path.isfile(backup)
+    assert open(backup, encoding="utf-8").read() == "original"
+    assert src.read_text(encoding="utf-8") == "original"  # original intact
+
+
+# --- AMEND flow ---
+
+def test_amend_empty_text_returns_prompt(tmp_sorting):
+    j = _make_amend_jarvis([])
+    result = sac.execute("виправ агентами", j)
+    assert "Вкажи" in result
+    j.llm.generate_response.assert_not_called()
+
+
+def test_amend_missing_instruction_returns_prompt(tmp_sorting):
+    (tmp_sorting / "calc.py").write_text("x=1\n", encoding="utf-8")
+    j = _make_amend_jarvis([])
+    result = sac.execute("виправ агентами calc.py", j)
+    assert "Вкажи" in result and "calc.py" in result
+    j.llm.generate_response.assert_not_called()
+
+
+def test_amend_file_not_found_returns_error(tmp_sorting):
+    j = _make_amend_jarvis([])
+    result = sac.execute("виправ агентами ghost.py  додай логування", j)
+    assert "не знайдено" in result
+    j.llm.generate_response.assert_not_called()
+
+
+def test_amend_happy_path_overwrites_file_and_creates_backup(tmp_sorting):
+    original = "def old():\n    return 0\n"
+    (tmp_sorting / "calc.py").write_text(original, encoding="utf-8")
+
+    updated_code = "def old():\n    return 0\n\ndef new():\n    return 1\n"
+    payload = f"FILENAME: calc.py\nCODE:\n{updated_code}"
+    j = _make_amend_jarvis(["arch_plan", "dev_out", "<APPROVED>", payload])
+
+    result = sac.execute("виправ агентами calc.py  додай функцію new", j)
+
+    assert "calc.py" in result
+    assert "Резервна копія" in result or "bak" in result
+
+    # Original file updated
+    assert (tmp_sorting / "calc.py").read_text(encoding="utf-8").strip() == updated_code.strip()
+
+    # Backup exists
+    backups = list(tmp_sorting.glob("calc.bak_*.py"))
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == original
+
+
+def test_amend_architect_prompt_contains_existing_code(tmp_sorting):
+    existing = "x = 42\n"
+    (tmp_sorting / "x.py").write_text(existing, encoding="utf-8")
+
+    payload = _refactor_payload("x.py", "x = 42\n# improved\n")
+    j = _make_amend_jarvis(["arch", "dev", "<APPROVED>", payload])
+    sac.execute("виправ агентами x.py  додай коментар", j)
+
+    arch_prompt = j.llm.generate_response.call_args_list[0].args[0]
+    assert "x = 42" in arch_prompt
+    assert "корекці" in arch_prompt.lower() or "змін" in arch_prompt.lower()
+
+
+def test_amend_developer_prompt_contains_existing_code(tmp_sorting):
+    existing = "def f():\n    pass\n"
+    (tmp_sorting / "f.py").write_text(existing, encoding="utf-8")
+
+    payload = _refactor_payload("f.py", "def f():\n    return 1\n")
+    j = _make_amend_jarvis(["arch", "dev", "<APPROVED>", payload])
+    sac.execute("виправ агентами f.py  повертай 1", j)
+
+    # Developer is the 2nd LLM call (index 1).
+    dev_prompt = j.llm.generate_response.call_args_list[1].args[0]
+    assert "def f():" in dev_prompt
+
+
+def test_amend_all_trigger_phrases(tmp_sorting):
+    """Every AMEND_TRIGGER must activate amend mode."""
+    existing = "x = 1\n"
+    payload = _refactor_payload("t.py", "x = 2\n")
+    for trigger in sac.AMEND_TRIGGERS:
+        (tmp_sorting / "t.py").write_text(existing, encoding="utf-8")
+        j = _make_amend_jarvis(["a", "d", "<APPROVED>", payload])
+        result = sac.execute(f"{trigger} t.py  покращ", j)
+        assert "t.py" in result or "Агентна" in result, f"trigger '{trigger}' failed: {result}"
+
+
+def test_amend_does_not_create_new_file(tmp_sorting):
+    """Amend must overwrite the original, not create a _2 copy."""
+    (tmp_sorting / "orig.py").write_text("x=1\n", encoding="utf-8")
+    payload = _refactor_payload("orig.py", "x=2\n")
+    j = _make_amend_jarvis(["a", "d", "<APPROVED>", payload])
+    sac.execute("виправ агентами orig.py  оновлення", j)
+
+    files = [p.name for p in tmp_sorting.glob("orig*.py") if "bak" not in p.name]
+    assert files == ["orig.py"]
+
+
+def test_amend_unsafe_code_blocked(tmp_sorting):
+    (tmp_sorting / "evil.py").write_text("x=1\n", encoding="utf-8")
+    bad_code = "import os\nos.system('rm -rf /')\n"
+    payload = f"FILENAME: evil.py\nCODE:\n{bad_code}"
+    j = _make_amend_jarvis(["a", "d", "<APPROVED>", payload])
+    result = sac.execute("виправ агентами evil.py  зроби щось", j)
+    assert "небезпечний" in result.lower()
+    # Original must be untouched
+    assert (tmp_sorting / "evil.py").read_text(encoding="utf-8") == "x=1\n"
+
+
+# ---------------------------------------------------------------------------
