@@ -1,0 +1,43 @@
+domain: data_proc
+description: Обробка даних — pandas, CSV/Excel/JSON, ETL.
+
+keywords:
+  - pandas
+  - обробка даних
+  - csv
+  - excel
+  - etl
+  - dataframe
+  - аналіз даних
+  - конвертація даних
+
+architect_hints: |
+  - Path замість string-конкатенації шляхів.
+  - Великі файли — chunk-обробка (pd.read_csv(chunksize=...)).
+  - Явне encoding="utf-8" і dtype-схема.
+  - Atomic write через tmp + rename.
+  - Окремий модуль валідації схеми (pandera / great_expectations).
+
+reviewer_checklist: |
+  ОСОБЛИВІ КРИТЕРІЇ ДЛЯ DATA-PROCESSING:
+    • Чи враховані порожні датафрейми / NaN / різні dtype?
+    • Чи є chunked-обробка для великих файлів (не весь файл в памʼять)?
+    • Шляхи на Path, а не str-конкатенація?
+    • Кодування явно вказано (utf-8)? Розділювач CSV явний?
+    • Результат записується атомарно (tmp+rename)?
+    • Дублікати / типи колонок перевіряються?
+
+examples_dont: |
+  # ❌ Loads entire file into memory
+  df = pd.read_csv("huge.csv")
+  df = df[df["x"] > 0]
+  df.to_csv("out.csv")  # not atomic
+
+examples_do: |
+  # ✅ Streaming + atomic
+  out = Path("out.csv")
+  tmp = out.with_suffix(".csv.tmp")
+  with tmp.open("w", encoding="utf-8", newline="") as f:
+      for chunk in pd.read_csv("huge.csv", chunksize=10_000):
+          chunk[chunk["x"] > 0].to_csv(f, header=f.tell()==0, index=False)
+  tmp.replace(out)

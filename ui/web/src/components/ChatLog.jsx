@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState } from 'react'
 
-const ACCENT = '#00ffcc'
+const ACCENT = '#00ff66'
 
 function useTypewriter(text, speed = 28) {
   const [displayed, setDisplayed] = useState('')
@@ -44,7 +44,7 @@ const Message = memo(function Message({ msg, animate }) {
     <div className="chat-message">
       <span className="chat-message__time">[{msg.time}] </span>
       <span className={`chat-message__speaker${isJarvis ? ' is-jarvis' : ' is-user'}`}>
-        {isJarvis ? 'JARVIS ›' : 'USER   ›'}{' '}
+        {isJarvis ? 'NEO    ›' : 'USER   ›'}{' '}
       </span>
       <span className={`chat-message__text${isJarvis ? ' is-jarvis' : ' is-user'}`}>
         {text}

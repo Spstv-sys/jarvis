@@ -1,0 +1,49 @@
+domain: cli
+description: CLI-утиліти — argparse, click, скрипти з командного рядка.
+
+keywords:
+  - cli
+  - командний рядок
+  - argparse
+  - click утиліта
+  - консольна утиліта
+
+architect_hints: |
+  - argparse або click з docstring як --help.
+  - Коди виходу: 0=OK, 1=runtime error, 2=usage/args error.
+  - stderr для помилок/прогресу, stdout для результату.
+  - --dry-run для деструктивних операцій.
+  - --verbose / --quiet для контролю логування.
+
+reviewer_checklist: |
+  ОСОБЛИВІ КРИТЕРІЇ ДЛЯ CLI:
+    • argparse/click з --help, валідацією, розумними exit-codes (0/1/2)?
+    • stderr для помилок, stdout для результату?
+    • Чи є dry-run/--verbose? KeyboardInterrupt обробляється чисто (sys.exit(130))?
+    • Чи всі аргументи мають type/choices/default?
+    • main() повертає int (exit code), main_entry() викликає sys.exit(main())?
+
+examples_dont: |
+  # ❌ Print everywhere, no exit codes
+  if not Path(arg).exists():
+      print("file not found")
+      return
+
+examples_do: |
+  # ✅ Proper CLI
+  def main(argv: list[str] | None = None) -> int:
+      parser = argparse.ArgumentParser(description=__doc__)
+      parser.add_argument("path", type=Path)
+      parser.add_argument("--dry-run", action="store_true")
+      args = parser.parse_args(argv)
+      if not args.path.exists():
+          print(f"error: {args.path} not found", file=sys.stderr)
+          return 1
+      ...
+      return 0
+
+  if __name__ == "__main__":
+      try:
+          sys.exit(main())
+      except KeyboardInterrupt:
+          sys.exit(130)

@@ -70,10 +70,11 @@ class LLMHandler:
         text = cls._RE_MULTI_SPACE.sub(" ", text)
         return text.strip()
 
-    def __init__(self, db, brain, audio):
+    def __init__(self, db, brain, audio, working_memory=None):
         self.db    = db
         self.brain = brain
         self.audio = audio
+        self.working_memory = working_memory  # core.working_memory.WorkingMemory | None
 
         self.personality_mode  = "стандартний"
         self.active_provider   = "deepseek"
@@ -409,12 +410,29 @@ class LLMHandler:
     def process_chat(self, user_text: str) -> None:
         self.short_term_memory.append(f"User: {user_text}")
 
+        # --- Working Memory: розв'язуємо кореференції ("він/вона/той") ----
+        wm = self.working_memory
+        wm_block = ""
+        wm_dialog = ""
+        search_query = user_text
+        if wm is not None:
+            try:
+                wm.add_user_turn(user_text)
+                expanded = wm.resolve_coreferences(user_text)
+                if expanded != user_text:
+                    logger.info(f"[WM] coref: '{user_text}' → '{expanded}'")
+                    search_query = expanded
+                wm_block = wm.context_block(max_chars=600)
+                wm_dialog = wm.recent_dialog(n=4)
+            except Exception as e:
+                logger.warning(f"[WM] помилка читання: {e}")
+
         print(f"{Fore.YELLOW}🔍 Пошук контексту (паралельно)...")
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-            future_context = pool.submit(self.brain.search, user_text, 10)
+            future_context = pool.submit(self.brain.search, search_query, 10)
             future_facts   = pool.submit(self.db.get_recent_facts, 15)
-            future_relevant_facts = pool.submit(self.db.search_facts, user_text, 8)
-            future_contacts = pool.submit(self.db.search_contacts, user_text, 3)
+            future_relevant_facts = pool.submit(self.db.search_facts, search_query, 8)
+            future_contacts = pool.submit(self.db.search_contacts, search_query, 3)
             knowledge_context = future_context.result()
             recent_facts      = future_facts.result()
             relevant_facts    = future_relevant_facts.result()
@@ -429,12 +447,23 @@ class LLMHandler:
             config.AI_PROMPTS["стандартний"]
         )
 
+        wm_section = (
+            f"СВІДОМИЙ КОНТЕКСТ (пам'ятай!): {wm_block}\n"
+            if wm_block else ""
+        )
+        wm_dialog_section = (
+            f"ОСТАННІ РЕПЛІКИ (структуровано):\n{wm_dialog}\n\n"
+            if wm_dialog else ""
+        )
+
         full_prompt = (
             f"Системна роль: {role_prompt}\n\n"
+            f"{wm_section}"
             f"КОНТЕКСТ З ПАМ'ЯТІ:\n\"\"\"{knowledge_context}\"\"\"\n\n"
             f"КОНТАКТИ: {matched_contacts}\n"
             f"РЕЛЕВАНТНІ ФАКТИ: {relevant_facts}\n"
             f"ДОДАТКОВІ ФАКТИ: {recent_facts}\n"
+            f"{wm_dialog_section}"
             f"ІСТОРІЯ ДІАЛОГУ:\n{history}\n\n"
             f"ЗАПИТ КОРИСТУВАЧА: {user_text}"
         )
@@ -443,6 +472,11 @@ class LLMHandler:
 
         if full_answer:
             self.short_term_memory.append(f"AI: {full_answer}")
+            if wm is not None:
+                try:
+                    wm.add_ai_turn(full_answer, skill="chat")
+                except Exception as e:
+                    logger.warning(f"[WM] помилка запису AI: {e}")
             # NOTE: response cache intentionally not populated here — full_prompt
             # contains time-stamped recent_facts, RAG search output, and dialogue
             # history, so it is effectively unique per call. Caching would only

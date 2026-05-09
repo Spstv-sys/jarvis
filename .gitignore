@@ -44,3 +44,15 @@ jarvis_*.log*
 uploads/
 Converted_Audio/
 Converted_Excel/
+
+# Large model artifacts and datasets
+whisper-final-model/
+whisper-small-uk-jarvis/
+training/neo_wakeword/.venv-train/
+training/neo_wakeword/training_data/
+training/neo_wakeword/output/
+live_test_recordings/
+my-dataset/
+literature/
+skills/pending/
+

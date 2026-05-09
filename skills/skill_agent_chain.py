@@ -313,6 +313,58 @@ def _trim(text: str, max_chars: int = _MAX_CONTEXT) -> str:
     return text[:head_chars] + "\n# ... (скорочено) ...\n" + text[-_TAIL_CHARS:]
 
 
+# ---------------------------------------------------------------------------
+# Domain classification + playbooks.
+# ---------------------------------------------------------------------------
+# Хардкодних словників більше немає — все читається з /playbooks/*.yaml через
+# core.playbook_loader. Це дозволяє редагувати чек-листи та архітектурні
+# підказки без правок коду (hot-reload по mtime).
+from core.playbook_loader import classify_domain as _classify_domain  # noqa: E402
+from core.playbook_loader import get_playbook as _get_playbook  # noqa: E402
+
+
+def _domain_checklist(domain: str) -> str:
+    return _get_playbook(domain).reviewer_checklist or _get_playbook("generic").reviewer_checklist
+
+
+def _domain_architect_hints(domain: str) -> str:
+    return _get_playbook(domain).architect_hints
+
+
+def _recall_memory(request: str) -> str:
+    """Підтягує уроки рефлектора + схожі епізоди. Graceful degradation якщо модулі не доступні."""
+    parts: list[str] = []
+    try:
+        from core.reflector import get_reflector
+        lessons = get_reflector().recall(request, top_k=5) or []
+        for l in lessons:
+            scope = (getattr(l, "scope", None) or "").strip()
+            text = (getattr(l, "text", None) or "").strip()
+            conf = float(getattr(l, "confidence", 0.0) or 0.0)
+            if text:
+                parts.append(f"  • [урок/{scope}, conf={conf:.2f}] {text[:200]}")
+    except Exception as exc:
+        logger.debug("_recall_memory: reflector unavailable: %s", exc)
+    try:
+        from core.episodic_memory import get_episodic_memory
+        episodes = get_episodic_memory().search(
+            f"код {request}", top_k=3, kinds=["command", "skill_run"]
+        ) or []
+        for ev in episodes:
+            text = (getattr(ev, "text", None) or "").strip()
+            if text:
+                parts.append(f"  • [епізод] {text[:200]}")
+    except Exception as exc:
+        logger.debug("_recall_memory: episodic unavailable: %s", exc)
+    if not parts:
+        return ""
+    return (
+        "\nКОНТЕКСТ З ДОСВІДУ (врахуй ці уроки при проєктуванні):\n"
+        + "\n".join(parts[:8])
+        + "\n"
+    )
+
+
 def execute(cmd: str, jarvis) -> str:
     """Run a 4-stage agent chain (Architect → Developer → Reviewer → Refactorer).
 
@@ -402,6 +454,16 @@ def execute(cmd: str, jarvis) -> str:
 
     request = amend_instruction if amend_mode else text
 
+    # ── Domain + memory grounding (shared by Architect & Reviewer) ───────────
+    domain = _classify_domain(request)
+    architect_hints = _domain_architect_hints(domain)
+    domain_checklist = _domain_checklist(domain)
+    memory_block = _recall_memory(request)
+    logger.info(
+        "agent_chain: domain=%s, hints=%dch, checklist=%dch, memory=%dch",
+        domain, len(architect_hints), len(domain_checklist), len(memory_block),
+    )
+
     # Cooperative cancellation helper.
     cancel_event = getattr(jarvis, "cancel_event", None)
 
@@ -411,6 +473,11 @@ def execute(cmd: str, jarvis) -> str:
     # ── Stage 1: Architect ────────────────────────────────────────────────────
     jarvis.audio.speak("Архітектор аналізує задачу та проєктує структуру рішення.")
 
+    hints_block = (
+        f"\nАРХІТЕКТУРНІ ОРІЄНТИРИ ДЛЯ ДОМЕНУ '{domain}':\n{architect_hints}\n"
+        if architect_hints else ""
+    )
+
     if amend_mode:
         existing_ctx = _trim(existing_code)
         existing_label = (
@@ -418,7 +485,9 @@ def execute(cmd: str, jarvis) -> str:
             if len(existing_code) > _MAX_CONTEXT else "повний текст"
         )
         arch_prompt = (
-            f"Ти — Software Architect. Задача корекції: '{request}'.\n"
+            f"Ти — Software Architect. Домен: {domain}. Задача корекції: '{request}'.\n"
+            f"{memory_block}"
+            f"{hints_block}"
             f"Існуючий код ({existing_label}):\n"
             f"{existing_ctx}\n\n"
             f"Підготуй точний план змін:\n"
@@ -429,11 +498,14 @@ def execute(cmd: str, jarvis) -> str:
         )
     else:
         arch_prompt = (
-            f"Ти — Software Architect. Задача: '{request}'.\n"
+            f"Ти — Software Architect. Домен: {domain}. Задача: '{request}'.\n"
+            f"{memory_block}"
+            f"{hints_block}"
             f"Спроєктуй чітку архітектуру рішення:\n"
             f"- Список модулів / класів / функцій з коротким описом.\n"
             f"- Вхідні та вихідні дані кожного компонента.\n"
             f"- Ключові технічні рішення та їхні обґрунтування.\n"
+            f"- Специфічні ризики для домену '{domain}' та як їх мітигувати.\n"
             f"Відповідай виключно технічним текстом, без коду."
         )
     arch_output = _call_with_retry(lambda: jarvis.llm.generate_response(arch_prompt, is_system_call=True))
@@ -550,18 +622,23 @@ def execute(cmd: str, jarvis) -> str:
                     f"{diagnostics}\n"
                 )
         rev_prompt = (
-            f"Ти — Senior Code Reviewer. Задача: '{request}'.\n"
+            f"Ти — Senior Code Reviewer. Домен: {domain}. Задача: '{request}'.\n"
             f"Перевір наступний код ({rev_label}):\n"
             f"{rev_context}\n"
             f"{ruff_section}\n"
-            f"Знайди:\n"
+            f"Загальні категорії:\n"
             f"1. Логічні помилки та помилки часу виконання.\n"
             f"2. Порушення PEP 8 та PEP 484.\n"
             f"3. Потенційні вразливості безпеки.\n"
             f"4. Відсутню обробку виключень.\n\n"
+            f"{domain_checklist}\n"
+            f"ПРАВИЛА ВЕРДИКТУ:\n"
+            f"  • Знайди МІНІМУМ 2 конкретні проблеми. Якщо їх дійсно немає —\n"
+            f"    явно пройди КОЖНИЙ пункт доменного чек-листу в COMMENT (≥2 речення на кожний).\n"
+            f"  • Синтаксична валідність / PEP-8 / type hints НЕ є підставою для APPROVED без перевірки семантики.\n\n"
             f"Поверни відповідь СТРОГО у форматі (одна з двох форм):\n"
             f"  STATUS: APPROVED\n"
-            f"  COMMENT: <короткий підсумок чому код прийнятний>\n"
+            f"  COMMENT: <явний прохід по кожному пункту чек-листу>\n"
             f"АБО:\n"
             f"  STATUS: NEEDS_CHANGES\n"
             f"  REQUIRED_CHANGES:\n"
@@ -581,8 +658,10 @@ def execute(cmd: str, jarvis) -> str:
         if _cancelled():
             return "Ланцюжок агентів зупинено за запитом користувача."
 
-        # APPROVED check is permissive: any "STATUS: APPROVED" mention exits.
-        if re.search(r"STATUS:\s*APPROVED", rev_output, re.IGNORECASE):
+        # APPROVED детекція жорстка: "STATUS: APPROVED" НА ОКРЕМОМУ РЯДКУ.
+        # Раніше permissive regex ловив фрази на кшталт
+        # "це НЕ STATUS: APPROVED, бо..." — і лооп виходив хибно.
+        if re.search(r"^\s*STATUS:\s*APPROVED\s*$", rev_output, re.IGNORECASE | re.MULTILINE):
             approved = True
             logger.info("Reviewer APPROVED at iteration %d", iteration)
             break

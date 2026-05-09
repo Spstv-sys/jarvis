@@ -1,16 +1,25 @@
 import { useState, useEffect, useRef } from 'react'
 import { useJarvis }  from './hooks/useJarvis'
+import { useAccent }  from './hooks/useAccent'
+import { useMicRecorder } from './hooks/useMicRecorder'
 import Waveform       from './components/Waveform'
 import ChatLog        from './components/ChatLog'
+import ThoughtStream  from './components/ThoughtStream'
+import WorkingMemoryPanel from './components/WorkingMemoryPanel'
+import GoalStackPanel from './components/GoalStackPanel'
+import ReflectionPanel from './components/ReflectionPanel'
+import AnticipatorBanner from './components/AnticipatorBanner'
 import Metrics        from './components/Metrics'
 import StatusBar      from './components/StatusBar'
 import TitleBar       from './components/TitleBar'
+import MatrixRain     from './components/MatrixRain'
 
-const ACCENT = '#00ffcc'
+const ACCENT = '#00ff66'
 const THEMES = [
+  { id: 'matrix',  label: 'Matrix' },
   { id: 'classic', label: 'Classic' },
-  { id: 'ice', label: 'Ice' },
-  { id: 'ember', label: 'Ember' },
+  { id: 'ice',     label: 'Ice' },
+  { id: 'ember',   label: 'Ember' },
 ]
 
 function useUptime() {
@@ -30,17 +39,20 @@ function useUptime() {
 }
 
 export default function App() {
-  const { messages, metrics, status, provider, connected, sendCommand, clearMessages, uploadFile } = useJarvis()
+  const { messages, metrics, status, provider, connected, sendCommand, clearMessages, uploadFile, transcribeAudio, thoughts, clearThoughts, cognition, goalStack, reflection, runReflection, anticipator, scanAnticipator, acceptSuggestion, dismissSuggestion } = useJarvis()
   const [input, setInput] = useState('')
   const [uploading, setUploading] = useState(false)
+  const [transcribing, setTranscribing] = useState(false)
+  const mic = useMicRecorder()
   const [bootVisible, setBootVisible] = useState(true)
   const [voiceActive, setVoiceActive] = useState(false)
   const [assistantSpeaking, setAssistantSpeaking] = useState(false)
-  const [theme, setTheme] = useState(() => window.localStorage.getItem('jarvis-hud-theme') || 'classic')
+  const [theme, setTheme] = useState(() => window.localStorage.getItem('jarvis-hud-theme') || 'matrix')
   const fileInputRef = useRef(null)
   const voiceHoldRef = useRef(null)
   const speakingHoldRef = useRef(null)
   const uptime = useUptime()
+  const accent = useAccent(theme)
 
   const normalizedStatus = (status || 'LOADING').toUpperCase()
   const statusTone = normalizedStatus.includes('ERROR')
@@ -109,6 +121,26 @@ export default function App() {
     }
   }
 
+  const handleMicClick = async () => {
+    if (transcribing) return
+    if (mic.isRecording) {
+      const blob = await mic.stop()
+      if (!blob || blob.size < 200) return
+      setTranscribing(true)
+      try {
+        const ext = (blob.type.includes('ogg') ? 'ogg' : blob.type.includes('mp4') ? 'm4a' : 'webm')
+        const res = await transcribeAudio(blob, `voice.${ext}`)
+        if (res.ok && res.text) {
+          setInput(prev => (prev ? prev + ' ' : '') + res.text)
+        }
+      } finally {
+        setTranscribing(false)
+      }
+    } else {
+      mic.start()
+    }
+  }
+
   return (
     <div className={[
       'hud-app',
@@ -118,12 +150,14 @@ export default function App() {
       `hud-shell--${statusTone}`,
     ].filter(Boolean).join(' ')} data-theme={theme}>
 
+      {theme === 'matrix' && <MatrixRain />}
+
       <div className={`hud-startup ${bootVisible ? '' : 'hud-startup--hidden'}`}>
         <div className="hud-startup__scan" />
         <div className="hud-startup__core">
-          <div className="hud-startup__eyebrow">BOOT SEQUENCE</div>
-          <div className="hud-startup__title">J.A.R.V.I.S.</div>
-          <div className="hud-startup__subline">Initializing voice matrix and system telemetry</div>
+          <div className="hud-startup__eyebrow">WAKE UP, NEO...</div>
+          <div className="hud-startup__title">N.E.O.</div>
+          <div className="hud-startup__subline">The Matrix has you. Initializing neural uplink…</div>
           <div className="hud-startup__progress">
             <span className="hud-startup__progress-bar" />
           </div>
@@ -136,8 +170,8 @@ export default function App() {
       {/* ШАПКА */}
       <div className="hud-topbar hud-app-topbar hud-reveal">
         <div className="hud-topbar__identity">
-          <span className="hud-kicker">SYSTEM CONSOLE</span>
-          <span className="hud-title">J.A.R.V.I.S. INTERFACE</span>
+          <span className="hud-kicker">THE CONSTRUCT</span>
+          <span className="hud-title">N.E.O. INTERFACE</span>
           <div className="hud-session-indicator">
             <span className="hud-meta-label">SESSION UPTIME</span>
             <span className="hud-session-value">{uptime}</span>
@@ -168,6 +202,12 @@ export default function App() {
       <div className="hud-main hud-reveal hud-reveal-delay-2">
         {/* ЧАТ */}
         <div className="hud-chat-column">
+          <AnticipatorBanner
+            anticipator={anticipator}
+            acceptSuggestion={acceptSuggestion}
+            dismissSuggestion={dismissSuggestion}
+            scanAnticipator={scanAnticipator}
+          />
           <ChatLog messages={messages} />
 
           {/* ВВІД */}
@@ -185,10 +225,26 @@ export default function App() {
               disabled={uploading}
               title={uploading ? 'Завантаження...' : 'Прикріпити файл (PDF, DOCX, TXT, зображення)'}
               style={{
-                color:        uploading ? '#555' : ACCENT,
+                color:        uploading ? '#555' : accent,
                 cursor:       uploading ? 'wait' : 'pointer',
               }}
             >{uploading ? '⧗' : '📎'}</button>
+            <button
+              className={`action-button hud-control-button hud-mic-button${mic.isRecording ? ' is-recording' : ''}`}
+              onClick={handleMicClick}
+              disabled={transcribing}
+              title={
+                transcribing ? 'Розпізнавання...' :
+                mic.isRecording ? 'Зупинити запис і відправити на розпізнавання' :
+                mic.error ? `Помилка мікрофону: ${mic.error}` :
+                'Голосовий ввід (Whisper)'
+              }
+              style={{
+                color: transcribing ? '#888' : (mic.isRecording ? '#ff4d6d' : accent),
+                cursor: transcribing ? 'wait' : 'pointer',
+                boxShadow: mic.isRecording ? `0 0 ${6 + mic.level * 14}px rgba(255, 77, 109, ${0.35 + mic.level * 0.5})` : undefined,
+              }}
+            >{transcribing ? '⧗' : (mic.isRecording ? '■' : '🎤')}</button>
             <input
               className="hud-input hud-command-input"
               value={input}
@@ -204,15 +260,23 @@ export default function App() {
         </div>
 
         {/* САЙДБАР */}
-        <Metrics
-          metrics={metrics}
-          status={status}
-          provider={provider}
-          connected={connected}
-          statusTone={statusTone}
-          msgCount={messages.length}
-          onClear={clearMessages}
-        />
+        <div className="hud-sidebar-column" style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 280, maxWidth: 340 }}>
+          <Metrics
+            metrics={metrics}
+            status={status}
+            provider={provider}
+            connected={connected}
+            statusTone={statusTone}
+            msgCount={messages.length}
+            onClear={clearMessages}
+          />
+          <WorkingMemoryPanel cognition={cognition} accent={accent} />
+          <GoalStackPanel goalStack={goalStack} accent={accent} />
+          <ReflectionPanel reflection={reflection} runReflection={runReflection} />
+          <div style={{ flex: 1, minHeight: 240 }}>
+            <ThoughtStream thoughts={thoughts} onClear={clearThoughts} accent={accent} />
+          </div>
+        </div>
       </div>
 
       {/* СТАТУС-БАР */}

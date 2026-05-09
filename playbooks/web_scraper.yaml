@@ -1,0 +1,52 @@
+domain: web_scraper
+description: Web scrapers, crawlers, парсери HTML.
+
+keywords:
+  - скрейп
+  - scrape
+  - crawl
+  - парсинг сайт
+  - парсер сайт
+  - beautifulsoup
+  - selenium
+  - playwright
+  - спарсити сайт
+  - спарсити сторінку
+
+architect_hints: |
+  - Передбач robots.txt-перевірку перед стартом.
+  - Rate-limit як configurable (default ≥1 sec між запитами на той самий хост).
+  - Retry з exponential backoff на 5xx/429.
+  - Селектори/шляхи винось у конфіг — DOM міняється часто.
+  - requests.Session з context manager.
+
+reviewer_checklist: |
+  ОСОБЛИВІ КРИТЕРІЇ ДЛЯ WEB-SCRAPER:
+    • robots.txt поважається? rate-limit (затримка між запитами)?
+    • retry з backoff на 5xx/429? Хоча б фіксований sleep?
+    • Пагінація обробляється без нескінченного циклу (max_pages, безпечний exit)?
+    • Селектори винесено в константи? Resilience до зміни DOM (try/except навколо .find)?
+    • Чи враховано encoding (response.encoding / apparent_encoding)?
+    • Timeout на кожному запиті?
+    • User-Agent явно встановлено (не дефолтний "python-requests/...")?
+
+examples_dont: |
+  # ❌ No rate-limit, no retry
+  for url in urls:
+      r = requests.get(url)
+      data.append(r.text)
+
+examples_do: |
+  # ✅ Session + rate-limit + retry
+  with requests.Session() as s:
+      s.headers["User-Agent"] = "MyBot/1.0 (+contact@example.com)"
+      for url in urls:
+          for attempt in range(3):
+              try:
+                  r = s.get(url, timeout=10)
+                  if r.status_code == 200:
+                      break
+                  time.sleep(2 ** attempt)
+              except requests.RequestException:
+                  time.sleep(2 ** attempt)
+          time.sleep(1)  # rate limit

@@ -48,11 +48,16 @@ uvicorn[standard]
 python-multipart
 openpyxl
 
-# --- Парсинг документів (PDF, DOCX, OCR) ---
+# --- Парсинг документів (PDF, DOCX, OCR, EPUB) ---
 PyMuPDF
 python-docx
 pytesseract
 Pillow
+EbookLib  # EPUB-завантажувач для skill_learn_library / book_loader
+
+# --- Knowledge Graph (опційно, для KG_ENABLED=1) ---
+# spacy
+# Після установки виконай: python -m spacy download uk_core_news_md
 
 # --- Desktop UI ---
 customtkinter

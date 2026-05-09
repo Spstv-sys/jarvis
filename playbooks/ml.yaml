@@ -1,0 +1,43 @@
+domain: ml
+description: Machine learning — навчання моделей, інференс, embeddings.
+
+keywords:
+  - модель
+  - навчи
+  - train
+  - pytorch
+  - sklearn
+  - нейрон
+  - класифікатор
+  - regress
+  - embedding
+  - fine-tune
+
+architect_hints: |
+  - random_seed фіксований у всіх етапах.
+  - Окремі функції: load_data / build_model / train / evaluate.
+  - Device-handling (cpu/cuda fallback).
+  - Логування метрик через logging або tensorboard, не print.
+  - Checkpoints після кожної епохи + early stopping.
+
+reviewer_checklist: |
+  ОСОБЛИВІ КРИТЕРІЇ ДЛЯ ML:
+    • random_seed фіксований? Train/val/test split без витоку?
+    • device-handling (cpu/cuda) грамотне? Чи є .to(device) для тензорів та моделі?
+    • Checkpoints зберігаються? Early stopping?
+    • Метрики логуються структуровано, а не просто print?
+    • Памʼять очищається (gc.collect, torch.cuda.empty_cache) між великими ітераціями?
+    • Dataloader має num_workers і pin_memory де доречно?
+
+examples_dont: |
+  # ❌ No seed, no device handling
+  model = MyModel()
+  data = torch.randn(100, 10)
+  out = model(data)
+
+examples_do: |
+  # ✅ Reproducible + device
+  torch.manual_seed(42)
+  device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+  model = MyModel().to(device)
+  data = torch.randn(100, 10, device=device)

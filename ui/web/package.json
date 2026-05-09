@@ -1,5 +1,5 @@
 {
-  "name": "jarvis-hud",
+  "name": "neo-hud",
   "version": "1.0.0",
   "main": "electron.cjs",
   "scripts": {
@@ -22,8 +22,8 @@
     "wait-on": "^9.0.5"
   },
   "build": {
-    "appId": "com.jarvis.app",
-    "productName": "J.A.R.V.I.S.",
+    "appId": "com.neo.app",
+    "productName": "N.E.O.",
     "win": {
       "icon": "../../jarvis_icon.ico",
       "target": "nsis"

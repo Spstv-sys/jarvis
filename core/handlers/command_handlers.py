@@ -13,7 +13,10 @@ from datetime import datetime, timedelta
 
 import requests
 from colorama import Fore
-from duckduckgo_search import DDGS
+try:
+    from ddgs import DDGS
+except ImportError:  # fallback на старий пакет
+    from duckduckgo_search import DDGS  # type: ignore[no-redef]
 
 import config
 from core.utils import strip_triggers, check_code_safety
@@ -666,14 +669,19 @@ class CommandHandlers:
         if not query:
             self.audio.speak("Що саме мені знайти?")
             return "CONTINUE"
-        self.audio.speak(f"Шукаю в мережі інформацію про {query}...")
+        self.audio.speak(f"Шукаю інформацію про {query}...")
         try:
             results = self._web_search(query)
             if results:
+                # Якщо джерело — локальна Вікіпедія, додаємо позначку для контексту
+                source_hint = "офлайн Вікіпедія" if results[0].get("url", "").startswith(
+                    config.WIKI_OFFLINE_URL or "::none::"
+                ) else "мережа"
                 search_context = "\n".join(r['body'] for r in results)
                 answer = self.llm.generate_response(
                     f"Користувач шукає: '{query}'.\n"
-                    f"Ось що знайдено в мережі:\n{search_context}\n"
+                    f"Джерело: {source_hint}.\n"
+                    f"Ось що знайдено:\n{search_context}\n"
                     "Зроби чіткий інформативний підсумок українською мовою.",
                     is_system_call=True,
                 )
@@ -696,6 +704,21 @@ class CommandHandlers:
         return "CONTINUE"
 
     def _web_search(self, query: str) -> list:
+        # 1) Офлайн Вікіпедія (якщо kiwix-serve запущено)
+        try:
+            from core.wiki_offline import get_wiki_offline
+            wiki = get_wiki_offline()
+            if wiki and wiki.is_available():
+                offline = wiki.search(query, limit=3)
+                if offline:
+                    logger.info(
+                        f"_web_search: {len(offline)} офлайн-результатів з Вікіпедії"
+                    )
+                    return offline
+        except Exception as e:
+            logger.warning(f"_web_search: offline lookup failed: {e}")
+
+        # 2) DuckDuckGo (онлайн)
         for attempt in range(3):
             try:
                 with DDGS() as ddgs:
@@ -709,6 +732,8 @@ class CommandHandlers:
             except Exception as e:
                 logger.warning(f"DDGS спроба {attempt + 1} невдала: {e}")
             time.sleep(1.5 * (attempt + 1))
+
+        # 3) Wikipedia REST (онлайн fallback)
         logger.warning(f"DDGS заблоковано — використовую Wikipedia для '{query}'")
         return self._wikipedia_search(query)
 

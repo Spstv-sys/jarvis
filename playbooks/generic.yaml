@@ -1,0 +1,36 @@
+domain: generic
+description: Fallback для незакласифікованих задач.
+
+keywords: []
+
+architect_hints: |
+  - Чітко окресли публічний API модуля.
+  - Один клас/функція = одна відповідальність.
+  - Логування через logging.getLogger(__name__), не print.
+  - Винятки: конкретні класи, не bare except.
+
+reviewer_checklist: |
+  БАЗОВІ КРИТЕРІЇ:
+    • Resource leaks (відкриті файли/Session/socket без закриття)?
+    • Повернення значень узгоджене з типами/анотаціями?
+    • Чи є приховані побічні ефекти у "свобідних" функціях?
+    • Обробка винятків конкретна, не голий except?
+    • Logging замість print?
+    • Магічні константи винесено в назвовані змінні?
+
+examples_dont: |
+  # ❌ bare except, print, leaked file
+  try:
+      f = open("x.txt")
+      print(f.read())
+  except:
+      pass
+
+examples_do: |
+  # ✅ specific except, logging, context manager
+  logger = logging.getLogger(__name__)
+  try:
+      with open("x.txt", encoding="utf-8") as f:
+          logger.info("read %d bytes", len(f.read()))
+  except FileNotFoundError:
+      logger.warning("x.txt not found")

@@ -67,6 +67,8 @@ class AudioManager:
         self.whisper_model  = None
         self._whisper_ready = threading.Event()
         self._speak_lock    = threading.Lock()
+        self._is_speaking   = threading.Event()
+        self._tts_cooldown_sec = 0.35
         self._noise_calibrated = False
         self._oww_ready     = threading.Event()
         self._oww_unavailable_logged = False
@@ -93,15 +95,60 @@ class AudioManager:
 
     def _load_whisper_async(self) -> None:
         try:
-            model = self._load_whisper()
-            if model is None:
-                print(f"{Fore.RED}⚠️ Запуск Whisper на CPU...")
-                model = self._load_whisper(force_cpu=True)
-            self.whisper_model = model
+            # Спробувати завантажити кастомну модель з whisper-final-model
+            model = self._load_custom_whisper()
+            if model is not None:
+                self.whisper_model = model
+                logger.info("Whisper: кастомна модель успішно завантажена з whisper-final-model.")
+            else:
+                # fallback: faster-whisper turbo
+                model = self._load_whisper()
+                if model is None:
+                    print(f"{Fore.RED}⚠️ Запуск Whisper на CPU...")
+                    model = self._load_whisper(force_cpu=True)
+                self.whisper_model = model
         except Exception as e:
             logger.error(f"Whisper: помилка фонового завантаження: {e}")
         finally:
             self._whisper_ready.set()
+
+    @staticmethod
+    def _load_custom_whisper():
+        """
+        Завантаження Whisper з базової моделі та LoRA-адаптера через PEFT.
+        Повертає pipeline для розпізнавання аудіо або None, якщо не вдалося.
+        """
+        try:
+            from transformers import pipeline, AutoModelForSpeechSeq2Seq, AutoProcessor
+            from peft import PeftModel
+            import torch
+            import os
+            lora_adapter_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'whisper-final-model'))
+            base_model_id = "openai/whisper-small"
+            if not os.path.exists(lora_adapter_path):
+                logger.error(f"Whisper: не знайдено LoRA-адаптер: {lora_adapter_path}")
+                return None
+            processor = AutoProcessor.from_pretrained(base_model_id)
+            model = AutoModelForSpeechSeq2Seq.from_pretrained(
+                base_model_id,
+                torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32
+            )
+            model = PeftModel.from_pretrained(model, lora_adapter_path)
+            device = 0 if torch.cuda.is_available() else 'cpu'
+            pipe = pipeline(
+                "automatic-speech-recognition",
+                model=model,
+                tokenizer=processor.tokenizer,
+                feature_extractor=processor.feature_extractor,
+                device=device,
+                return_timestamps=True,
+                chunk_length_s=30,
+                stride_length_s=5,
+            )
+            return pipe
+        except Exception as e:
+            logger.error(f"Whisper: не вдалося завантажити LoRA-адаптер: {e}")
+            return None
 
     def _load_oww_model(self):
         """Завантаження openwakeword у фоні — не блокує старт"""
@@ -239,6 +286,7 @@ class AudioManager:
                 f.write(audio_buffer)
 
         with self._speak_lock:
+            self._is_speaking.set()
             try:
                 self._run_async(generate_audio())
                 if not _PYGAME_AVAILABLE:
@@ -265,6 +313,9 @@ class AudioManager:
             except Exception as e:
                 logger.error(f"Помилка TTS: {e}")
             finally:
+                # Дати тиші стихнути в колонках, щоб мікрофон не вловив луну
+                time.sleep(self._tts_cooldown_sec)
+                self._is_speaking.clear()
                 try:
                     if os.path.exists(tmp_path):
                         os.remove(tmp_path)
@@ -288,6 +339,12 @@ class AudioManager:
             if config.OWW_FALLBACK_TO_WHISPER:
                 return self._whisper_wake_word_fallback()
             return False
+
+        # Не починати слухати поки TTS грає у колонках
+        while self._is_speaking.is_set():
+            if self.stop_event.is_set():
+                return False
+            time.sleep(0.05)
 
         print(f"\n{Fore.CYAN}🎧 Очікування команди...")
         self.current_volume = 0
@@ -420,6 +477,12 @@ class AudioManager:
             logger.error("Whisper не завантажено.")
             return None
 
+        # Не починати запис поки TTS грає
+        while self._is_speaking.is_set():
+            if self.stop_event.is_set():
+                return None
+            time.sleep(0.05)
+
         tmp      = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
         tmp_path = tmp.name
         tmp.close()
@@ -444,30 +507,85 @@ class AudioManager:
                     phrase_time_limit=limit,
                 )
 
+            # Записуємо WAV у 16 kHz / 16-bit моно — рідний формат Whisper.
+            # Це усуває можливі артефакти ресемплінгу і робить вивід стабільним.
+            wav_bytes = audio.get_wav_data(convert_rate=16000, convert_width=2)
             with open(tmp_path, "wb") as f:
-                f.write(audio.get_wav_data())
+                f.write(wav_bytes)
 
-            segments, _ = self.whisper_model.transcribe(
-                tmp_path,
-                beam_size=1,
-                best_of=1,
-                language="uk",
-                vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=400),
-                condition_on_previous_text=False
+            # Діагностика: тип моделі, розмір аудіо
+            try:
+                from faster_whisper import WhisperModel as _FWModel
+                is_faster_whisper = isinstance(self.whisper_model, _FWModel)
+            except Exception:
+                is_faster_whisper = False
+            model_type = "faster-whisper" if is_faster_whisper else "hf-pipeline"
+            audio_size = len(wav_bytes)
+            # WAV header ~44 байти; ~32000 байт/сек для 16kHz/16-bit моно
+            approx_seconds = max(0.0, (audio_size - 44) / 32000.0)
+            logger.info(
+                f"[DEBUG] listen_for_command: model_type={model_type}, "
+                f"audio_path={tmp_path}, bytes={audio_size}, ~sec={approx_seconds:.2f}"
             )
 
-            text = "".join(s.text for s in segments).strip().lower()
+            if approx_seconds < 0.3:
+                logger.warning("[DEBUG] Аудіо занадто коротке — ймовірно тиша або обрив.")
 
+            if is_faster_whisper:
+                segments, info = self.whisper_model.transcribe(
+                    tmp_path,
+                    beam_size=1,
+                    best_of=1,
+                    language="uk",
+                    vad_filter=True,
+                    vad_parameters=dict(min_silence_duration_ms=400),
+                    condition_on_previous_text=False,
+                )
+                segs_list = list(segments)
+                logger.info(
+                    f"[DEBUG] faster-whisper: lang={getattr(info, 'language', '?')}, "
+                    f"prob={getattr(info, 'language_probability', 0):.2f}, "
+                    f"segments={len(segs_list)}"
+                )
+                text = "".join(s.text for s in segs_list).strip().lower()
+            else:
+                # Hugging Face pipeline (LoRA-адаптер на whisper-small).
+                # Для актуальних transformers потрібна повна назва мови та явний task,
+                # інакше модель може повертати порожній текст.
+                result = self.whisper_model(
+                    tmp_path,
+                    return_timestamps=True,
+                    generate_kwargs={"language": "ukrainian", "task": "transcribe"},
+                )
+                logger.info(f"[DEBUG] pipeline result: {result}")
+                if isinstance(result, dict) and "text" in result:
+                    text = (result["text"] or "").strip().lower()
+                else:
+                    text = ""
+
+            logger.info(f"[DEBUG] recognized text: '{text}'")
             if text:
+                # Прибрати ведучі wake-word слова: "слухай", "слухаю", "джарвіс", "jarvis"
+                # (користувач часто повторює їх перед командою)
+                text = re.sub(
+                    r'^[\s,\.\-]*(?:слухай(?:те)?|слухаю|джарв[іи]с|jarvis|hey\s+jarvis)[\s,\.\-:]+',
+                    '',
+                    text,
+                    flags=re.IGNORECASE,
+                ).strip()
+                if not text:
+                    logger.warning("[DEBUG] Після зрізання wake-префіксу команда порожня — None.")
+                    return None
                 print(f"{Fore.YELLOW}💬 Ви: {text}")
                 return text
+            logger.warning("[DEBUG] Розпізнавання повернуло порожній текст — повертаю None.")
             return None
 
         except sr.WaitTimeoutError:
+            logger.warning("[DEBUG] WaitTimeoutError in listen_for_command")
             return None
         except Exception as e:
-            logger.error(f"Помилка розпізнавання: {e}")
+            logger.error(f"[DEBUG] Помилка розпізнавання: {e}")
             return None
         finally:
             try:
@@ -483,6 +601,53 @@ class AudioManager:
                 logger.info("PyAudio завершено.")
         except Exception as e:
             logger.error(f"Помилка закриття PyAudio: {e}")
+
+    def transcribe_file(self, path: str) -> str:
+        """Розпізнати довільний аудіо-файл (wav/webm/ogg/mp3) існуючою Whisper моделлю.
+
+        Викликається з REST-ендпоїнту /transcribe (web-mic input).
+        """
+        if self.whisper_model is None:
+            self._whisper_ready.wait(timeout=30)
+        if self.whisper_model is None:
+            raise RuntimeError("Whisper model is not loaded")
+
+        try:
+            from faster_whisper import WhisperModel as _FWModel
+            is_faster_whisper = isinstance(self.whisper_model, _FWModel)
+        except Exception:
+            is_faster_whisper = False
+
+        if is_faster_whisper:
+            segments, _info = self.whisper_model.transcribe(
+                path,
+                beam_size=1,
+                best_of=1,
+                language="uk",
+                vad_filter=True,
+                vad_parameters=dict(min_silence_duration_ms=400),
+                condition_on_previous_text=False,
+            )
+            text = "".join(s.text for s in segments).strip()
+        else:
+            result = self.whisper_model(
+                path,
+                return_timestamps=True,
+                generate_kwargs={"language": "ukrainian", "task": "transcribe"},
+            )
+            if isinstance(result, dict) and "text" in result:
+                text = (result["text"] or "").strip()
+            else:
+                text = ""
+
+        if text:
+            text = re.sub(
+                r'^[\s,\.\-]*(?:слухай(?:те)?|слухаю|джарв[іи]с|jarvis|hey\s+jarvis)[\s,\.\-:]+',
+                '',
+                text,
+                flags=re.IGNORECASE,
+            ).strip()
+        return text
 
     def __del__(self) -> None:
         self.close()

@@ -1,0 +1,47 @@
+domain: api_server
+description: HTTP/REST/WebSocket сервери — FastAPI, Flask, Django.
+
+keywords:
+  - fastapi
+  - flask
+  - django
+  - rest api
+  - веб-сервер
+  - http сервер
+  - endpoint
+  - api сервер
+
+architect_hints: |
+  - Pydantic-схеми для request/response.
+  - Окремі модулі: routes / services / models.
+  - DI для залежностей (БД, кеш, конфіг).
+  - CORS, rate-limit, auth — з самого початку.
+  - Секрети тільки з ENV.
+
+reviewer_checklist: |
+  ОСОБЛИВІ КРИТЕРІЇ ДЛЯ API-SERVER:
+    • Вхідні дані валідуються (Pydantic / Marshmallow)? Чи є жорсткі розмірні обмеження?
+    • Обробляються помилки (HTTP-коди), а не розлітаються в stack-trace?
+    • CORS, rate-limit, auth враховані?
+    • Секрети з ENV, не хардкодом?
+    • SQL-запити параметризовані (не f-strings)?
+    • Чи логуються запити з request_id для трасування?
+    • Чи коректні async/sync (не блокуючі виклики в async-handler-ах)?
+
+examples_dont: |
+  # ❌ SQL injection
+  cursor.execute(f"SELECT * FROM users WHERE name = '{name}'")
+
+  # ❌ Synchronous IO in async handler
+  @app.get("/data")
+  async def get_data():
+      time.sleep(5)  # blocks event loop!
+
+examples_do: |
+  # ✅ Parametrized + async
+  @app.get("/users/{name}", response_model=UserOut)
+  async def get_user(name: str = Path(min_length=1, max_length=64)):
+      row = await db.fetch_one("SELECT * FROM users WHERE name = :n", {"n": name})
+      if not row:
+          raise HTTPException(404, "User not found")
+      return row

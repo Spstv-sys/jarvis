@@ -6,6 +6,7 @@ import logging
 import logging.handlers
 import threading
 import queue
+import tempfile
 import psutil
 import uvicorn
 from collections import defaultdict
@@ -120,6 +121,49 @@ def ui_callback(sender: str, text: str) -> None:
     """Викликається з потоків Jarvis — кладе подію в чергу"""
     event_queue.put({"sender": sender, "text": text})
 
+
+def _thought_to_event(t) -> dict:
+    """Серіалізує Thought в dict для WS-broadcast'у."""
+    return {
+        "_kind": "thought",
+        "ts":    t.ts,
+        "stage": t.stage,
+        "text":  t.text,
+        "meta":  t.meta,
+    }
+
+
+def _on_thought(t) -> None:
+    """Підписник ThoughtLog — публікує думку в чергу подій."""
+    try:
+        event_queue.put(_thought_to_event(t))
+    except Exception:
+        pass
+
+
+def _on_goal_stack(snap: dict) -> None:
+    """Підписник GoalStack — публікує snapshot стеку."""
+    try:
+        event_queue.put({"_kind": "goal_stack", **snap})
+    except Exception:
+        pass
+
+
+def _on_reflection(snap: dict) -> None:
+    """Підписник Reflector — публікує оновлені уроки."""
+    try:
+        event_queue.put({"_kind": "reflection", **snap})
+    except Exception:
+        pass
+
+
+def _on_anticipator(snap: dict) -> None:
+    """Підписник Anticipator — публікує проактивні пропозиції."""
+    try:
+        event_queue.put({"_kind": "anticipator", **snap})
+    except Exception:
+        pass
+
 async def event_broadcaster() -> None:
     """Фоновий таск — розсилає події всім клієнтам"""
     loop = asyncio.get_running_loop()
@@ -129,11 +173,56 @@ async def event_broadcaster() -> None:
                 None,
                 lambda: event_queue.get(timeout=0.05)
             )
-            await manager.broadcast({"type": "message", **msg})
+            if msg.get("_kind") == "thought":
+                msg.pop("_kind", None)
+                await manager.broadcast({"type": "thought", **msg})
+            elif msg.get("_kind") == "goal_stack":
+                msg.pop("_kind", None)
+                await manager.broadcast({"type": "goal_stack", **msg})
+            elif msg.get("_kind") == "reflection":
+                msg.pop("_kind", None)
+                await manager.broadcast({"type": "reflection", **msg})
+            elif msg.get("_kind") == "anticipator":
+                msg.pop("_kind", None)
+                await manager.broadcast({"type": "anticipator", **msg})
+            else:
+                await manager.broadcast({"type": "message", **msg})
         except queue.Empty:
             pass
         except Exception:
             await asyncio.sleep(0.1)
+
+async def cognition_broadcaster() -> None:
+    """Live snapshot WM + intent stats — раз на 2 с (тільки якщо є зміни)."""
+    last_sig = None
+    while True:
+        await asyncio.sleep(2.0)
+        if not jarvis_ready.is_set() or jarvis is None:
+            continue
+        try:
+            wm = getattr(jarvis, "working_memory", None)
+            ctx = wm.context_block() if wm else ""
+            ents = []
+            if wm and hasattr(wm, "entities"):
+                try:
+                    ents = [e.__dict__ for e in wm.entities()][:8]
+                except Exception:
+                    ents = []
+            ir = getattr(jarvis, "intent_router", None)
+            ir_stats = ir.stats() if ir else {}
+            sig = (ctx, len(ents), tuple(sorted(ir_stats.items())) if ir_stats else ())
+            if sig == last_sig:
+                continue
+            last_sig = sig
+            await manager.broadcast({
+                "type": "cognition",
+                "wm_context": ctx,
+                "wm_entities": ents,
+                "intent_stats": ir_stats,
+            })
+        except Exception:
+            pass
+
 
 async def metrics_broadcaster() -> None:
     """Метрики системи — раз на секунду"""
@@ -200,6 +289,50 @@ async def lifespan(app: FastAPI):
     threading.Thread(target=start_jarvis, daemon=True).start()
     asyncio.create_task(event_broadcaster())
     asyncio.create_task(metrics_broadcaster())
+    asyncio.create_task(cognition_broadcaster())
+    # ThoughtLog (Шар 6) — підписуємо сервер на потік думок.
+    try:
+        from core.thought_log import get_thought_log
+        get_thought_log().subscribe(_on_thought)
+        logger.info("✅ ThoughtLog subscriber підключений до WebSocket broadcast.")
+    except Exception as e:
+        logger.warning(f"ThoughtLog subscribe failed: {e}")
+    # GoalStack (Шар 6+) — візуалізація активних планів.
+    try:
+        from core.goal_stack import get_goal_stack
+        get_goal_stack().subscribe(_on_goal_stack)
+        logger.info("✅ GoalStack subscriber підключений до WebSocket broadcast.")
+    except Exception as e:
+        logger.warning(f"GoalStack subscribe failed: {e}")
+    # Reflector (Шар 7) — метакогнітивні уроки.
+    try:
+        from core.reflector import get_reflector
+        refl = get_reflector()
+        refl.subscribe(_on_reflection)
+        # Якщо в config задано REFLECTOR_INTERVAL_SEC > 0 — стартуємо фоновий цикл.
+        try:
+            interval = int(getattr(config, "REFLECTOR_INTERVAL_SEC", 0))
+        except Exception:
+            interval = 0
+        if interval > 0:
+            refl.start(interval_sec=interval)
+        logger.info("✅ Reflector subscriber підключений до WebSocket broadcast.")
+    except Exception as e:
+        logger.warning(f"Reflector subscribe failed: {e}")
+    # Anticipator (Шар 8) — проактивні пропозиції.
+    try:
+        from core.anticipator import get_anticipator
+        ant = get_anticipator()
+        ant.subscribe(_on_anticipator)
+        try:
+            a_interval = int(getattr(config, "ANTICIPATOR_INTERVAL_SEC", 0))
+        except Exception:
+            a_interval = 0
+        if a_interval > 0:
+            ant.start(interval_sec=a_interval)
+        logger.info("✅ Anticipator subscriber підключений до WebSocket broadcast.")
+    except Exception as e:
+        logger.warning(f"Anticipator subscribe failed: {e}")
     yield
 
 # ---------------------------------------------------------------------------
@@ -250,6 +383,152 @@ async def get_status():
     ready    = jarvis_ready.is_set()
     provider = jarvis.llm.active_provider if jarvis else "—"
     return {"ready": ready, "provider": provider}
+
+
+@app.get("/cognition")
+async def get_cognition():
+    """Снепшот когнітивного стану: WM + останні думки + епізоди."""
+    snapshot: dict = {"ready": jarvis_ready.is_set()}
+    try:
+        from core.thought_log import get_thought_log
+        snapshot["thoughts"] = [t.to_dict() for t in get_thought_log().recent(50)]
+    except Exception as e:
+        snapshot["thoughts_error"] = str(e)
+
+    if jarvis is not None:
+        wm = getattr(jarvis, "working_memory", None)
+        if wm is not None:
+            try:
+                snapshot["working_memory"] = {
+                    "context": wm.context_block(),
+                    "entities": [e.__dict__ for e in getattr(wm, "entities", lambda: [])()][:10]
+                                  if hasattr(wm, "entities") else [],
+                }
+            except Exception as e:
+                snapshot["wm_error"] = str(e)
+        em = getattr(jarvis, "episodic_memory", None)
+        if em is not None:
+            try:
+                snapshot["episodic_recent"] = [
+                    {"when": e.when, "kind": e.kind, "text": e.text}
+                    for e in em.recent(15)
+                ]
+                snapshot["episodic_stats"] = em.stats()
+            except Exception as e:
+                snapshot["em_error"] = str(e)
+        ir = getattr(jarvis, "intent_router", None)
+        if ir is not None:
+            try:
+                snapshot["intent_router"] = ir.stats()
+            except Exception:
+                pass
+    return snapshot
+
+
+@app.get("/cognition/history")
+async def get_cognition_history(
+    limit: int = 200,
+    stages: str = "",
+    since: float | None = None,
+    until: float | None = None,
+):
+    """Історія думок з SQLite (за весь час)."""
+    try:
+        from core.thought_log import get_thought_log
+        stage_list = [s.strip() for s in stages.split(",") if s.strip()] or None
+        items = get_thought_log().history(limit=limit, stages=stage_list, since=since, until=until)
+        return {"thoughts": [t.to_dict() for t in items], "count": len(items)}
+    except Exception as e:
+        return {"error": str(e), "thoughts": []}
+
+
+@app.get("/goal_stack")
+async def get_goal_stack_snapshot():
+    """Поточний стек активних планів + остання історія."""
+    try:
+        from core.goal_stack import get_goal_stack
+        return get_goal_stack().snapshot()
+    except Exception as e:
+        return {"error": str(e), "active": [], "history": []}
+
+
+@app.get("/reflection")
+async def get_reflection_snapshot():
+    """Останні згенеровані уроки + статистика рефлексії."""
+    try:
+        from core.reflector import get_reflector
+        return get_reflector().snapshot()
+    except Exception as e:
+        return {"error": str(e), "recent": [], "stats": {}}
+
+
+@app.post("/reflection/run")
+async def trigger_reflection(window_hours: int | None = None):
+    """Ручний запуск рефлексії; повертає створені уроки."""
+    try:
+        from core.reflector import get_reflector
+        loop = asyncio.get_running_loop()
+        lessons = await loop.run_in_executor(
+            None, lambda: get_reflector().reflect_now(window_hours=window_hours)
+        )
+        return {"lessons": [l.to_dict() for l in lessons], "count": len(lessons)}
+    except Exception as e:
+        return {"error": str(e), "lessons": []}
+
+
+# ---------------------------------------------------------------------------
+# Anticipator REST (Шар 8)
+# ---------------------------------------------------------------------------
+@app.get("/anticipator")
+async def get_anticipator_snapshot():
+    """Поточний стек проактивних пропозицій + статистика."""
+    try:
+        from core.anticipator import get_anticipator
+        return get_anticipator().snapshot()
+    except Exception as e:
+        return {"error": str(e), "pending": [], "recent": [], "stats": {}}
+
+
+@app.post("/anticipator/scan")
+async def trigger_anticipator_scan():
+    """Ручний запуск сканування; повертає нові пропозиції."""
+    try:
+        from core.anticipator import get_anticipator
+        loop = asyncio.get_running_loop()
+        new_sugs = await loop.run_in_executor(None, lambda: get_anticipator().scan_now())
+        return {"new": [s.to_dict() for s in new_sugs], "count": len(new_sugs)}
+    except Exception as e:
+        return {"error": str(e), "new": []}
+
+
+@app.post("/anticipator/{sid}/accept")
+async def accept_suggestion(sid: str):
+    """Користувач прийняв пропозицію. Якщо є command — виконати через jarvis."""
+    try:
+        from core.anticipator import get_anticipator
+        sug = get_anticipator().accept(sid)
+        if not sug:
+            return {"ok": False, "reason": "not_found"}
+        executed = False
+        if sug.command and jarvis_ready.is_set() and jarvis is not None:
+            try:
+                jarvis.input_queue.put(sug.command)
+                executed = True
+            except Exception as e:
+                logger.warning(f"accept_suggestion: enqueue failed: {e}")
+        return {"ok": True, "suggestion": sug.to_dict(), "executed": executed}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/anticipator/{sid}/dismiss")
+async def dismiss_suggestion(sid: str):
+    try:
+        from core.anticipator import get_anticipator
+        ok = get_anticipator().dismiss(sid)
+        return {"ok": ok}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 # ---------------------------------------------------------------------------
 # File upload
@@ -343,6 +622,82 @@ async def upload_file(
         "size":     written,
         "path":     abs_path,
     }
+
+# ---------------------------------------------------------------------------
+# Speech-to-text (web mic)
+# ---------------------------------------------------------------------------
+_TRANSCRIBE_EXTS = {".wav", ".webm", ".ogg", ".oga", ".mp3", ".m4a", ".flac"}
+_MAX_TRANSCRIBE_SIZE = 25 * 1024 * 1024  # 25 MB
+
+@app.post("/transcribe")
+async def transcribe_audio(request: Request, file: UploadFile = File(...)):
+    client_ip = request.client.host if request.client else None
+    if client_ip is None:
+        raise HTTPException(status_code=400, detail="Bad Request")
+
+    if _JARVIS_API_KEY:
+        api_key = request.headers.get("X-API-Key", "")
+        if api_key != _JARVIS_API_KEY:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+    if not _check_rate_limit(client_ip):
+        raise HTTPException(status_code=429, detail="Too Many Requests")
+
+    if not jarvis_ready.is_set() or jarvis is None:
+        raise HTTPException(status_code=503, detail="Jarvis not ready")
+
+    # Determine extension from filename or content-type
+    raw_name = file.filename or "audio.webm"
+    ext = os.path.splitext(raw_name)[1].lower()
+    if ext not in _TRANSCRIBE_EXTS:
+        # MediaRecorder зазвичай надсилає audio/webm — нормалізуємо
+        ct = (file.content_type or "").lower()
+        if "webm" in ct:
+            ext = ".webm"
+        elif "ogg" in ct:
+            ext = ".ogg"
+        elif "wav" in ct:
+            ext = ".wav"
+        elif "mpeg" in ct or "mp3" in ct:
+            ext = ".mp3"
+        elif "mp4" in ct or "m4a" in ct:
+            ext = ".m4a"
+        else:
+            raise HTTPException(status_code=415, detail=f"Unsupported audio format: {ext or ct}")
+
+    # Stream-write to temp file with size cap
+    tmp = tempfile.NamedTemporaryFile(suffix=ext, delete=False)
+    tmp_path = tmp.name
+    tmp.close()
+    written = 0
+    try:
+        with open(tmp_path, "wb") as f:
+            while chunk := await file.read(1024 * 1024):
+                written += len(chunk)
+                if written > _MAX_TRANSCRIBE_SIZE:
+                    raise HTTPException(status_code=413, detail="Audio file too large")
+                f.write(chunk)
+        await file.close()
+
+        if written < 200:
+            return {"status": "ok", "text": ""}
+
+        # Run blocking transcribe in thread to avoid stalling the event loop
+        loop = asyncio.get_running_loop()
+        text = await loop.run_in_executor(None, jarvis.audio.transcribe_file, tmp_path)
+        logger.info(f"REST /transcribe: {written} bytes → {text!r}")
+        return {"status": "ok", "text": text or ""}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"REST /transcribe: помилка: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
 
 # ---------------------------------------------------------------------------
 # WebSocket

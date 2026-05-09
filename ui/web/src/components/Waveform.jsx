@@ -1,7 +1,11 @@
 import { useEffect, useRef } from 'react'
 
-const ACCENT = '#00ffcc'
 const N_BARS = 32
+
+function getCSSAccent() {
+  const el = document.querySelector('.hud-shell') || document.documentElement
+  return getComputedStyle(el).getPropertyValue('--hud-accent').trim() || '#00ff66'
+}
 
 export default function Waveform({ volume }) {
   const canvasRef = useRef(null)
@@ -59,15 +63,13 @@ export default function Waveform({ volume }) {
         const h = prev + (target - prev) * 0.2
         heightsRef.current[i] = h
 
-        const t  = Math.max(0, Math.min(scale, 1))
-        const g  = Math.round(255 * t)
-        const b  = Math.round(200 * t)
+        const accent = getCSSAccent()
 
         // ✅ Glow — розмитий широкий шар
         ctx.save()
-        ctx.shadowColor = ACCENT
+        ctx.shadowColor = accent
         ctx.shadowBlur  = scale > 0.05 ? 12 : 0
-        ctx.strokeStyle = `rgb(0,${g},${b})`
+        ctx.strokeStyle = scale > 0.05 ? accent : accent + '55'
         ctx.lineWidth   = 3
         ctx.lineCap     = 'round'
         ctx.beginPath()

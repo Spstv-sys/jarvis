@@ -149,7 +149,12 @@ class JarvisUltimate:
         # DI: AudioManager routes speak() through enqueue_speech — no monkey-patching
         self.audio = AudioManager(self.stop_event, output_callback=self.enqueue_speech)
 
-        self.llm         = LLMHandler(self.db, self.brain, self.audio)
+        # Working Memory — короткострокова свідомість (тема, активні сутності,
+        # остання дія). Підмішується в промпти та доступна скілам.
+        from core.working_memory import get_working_memory
+        self.working_memory = get_working_memory()
+
+        self.llm         = LLMHandler(self.db, self.brain, self.audio, working_memory=self.working_memory)
         self.sys_actions = SystemActions(self.audio, self.db)
 
         self.handlers = CommandHandlers(self)
@@ -160,8 +165,43 @@ class JarvisUltimate:
         self.dynamic_skills = []
         self.load_skills()
 
+        # Intent Router — LLM-fallback для нечітких команд (опційно).
+        self.intent_router = None
+        if getattr(config, "INTENT_ROUTER_ENABLED", False):
+            try:
+                from core.intent_router import IntentRouter
+                llm_call = None
+                if getattr(config, "INTENT_ROUTER_LLM", False) and self.llm:
+                    llm_call = lambda p: self.llm.generate_response(p, is_system_call=True)
+                self.intent_router = IntentRouter(
+                    triggers=config.TRIGGERS,
+                    dynamic_skills=self.dynamic_skills,
+                    llm_call=llm_call,
+                    cache_db_path=getattr(config, "INTENT_ROUTER_DB", None),
+                    fuzzy_match=self.fuzzy_in_command,
+                )
+                logger.info(f"✅ IntentRouter активовано: {self.intent_router.stats()}")
+            except Exception as e:
+                logger.error(f"IntentRouter init failed: {e}")
+                self.intent_router = None
+
+        # Episodic Memory — довготривалий журнал подій (Шар 5).
+        self.episodic_memory = None
+        if getattr(config, "EPISODIC_MEMORY_ENABLED", True):
+            try:
+                from core.episodic_memory import get_episodic_memory
+                self.episodic_memory = get_episodic_memory()
+                # Embedder підключиться лінь, коли brain прогріє memory_rag.
+                if getattr(self, "brain", None) is not None and getattr(self.brain, "embeddings", None):
+                    self.episodic_memory.attach_embedder(self.brain.embeddings)
+                logger.info(f"✅ EpisodicMemory активовано: {self.episodic_memory.stats()}")
+            except Exception as e:
+                logger.error(f"EpisodicMemory init failed: {e}")
+                self.episodic_memory = None
+
         self.start_file_monitor()
         self.start_hardware_monitor()
+        self.start_library_watcher()
 
     # ------------------------------------------------------------------
     # SPEECH QUEUE
@@ -218,7 +258,15 @@ class JarvisUltimate:
                     continue
                 if self.ui_callback:
                     self.ui_callback("Степан", cmd)
-                if any(w in cmd for w in config.TRIGGERS["stop_voice"]):
+                # Спершу перевіряємо команди завершення — інакше будь-яка
+                # фраза зі словом "стоп" (напр. "стоп джарвіс") буде
+                # перехоплена як stop_voice і ніколи не дійде до system_exit.
+                if any(self._trigger_in_cmd(t, cmd)
+                       for t in config.TRIGGERS.get("system_exit", [])):
+                    self.input_queue.put(cmd)
+                    if self.ui_callback:
+                        self.ui_callback("STATUS", "Завершення роботи...")
+                elif any(w in cmd for w in config.TRIGGERS["stop_voice"]):
                     print(f"{Fore.RED}🛑 Екстрене переривання голосу!")
                     self._request_cancel()
                     self.output_queue.put("<CLEAR_QUEUE>")
@@ -243,6 +291,37 @@ class JarvisUltimate:
         """
         self.cancel_event.set()
         logger.info("Cancellation requested — running skills should bail out.")
+
+    def _force_shutdown(self) -> None:
+        """Hard-terminate the whole process after a STOP command.
+
+        ``JarvisUltimate`` зазвичай живе у daemon-потоці (server.py, ui/hub.py),
+        тому вихід з ``start_processing_loop`` сам по собі не закриває
+        uvicorn / Tk mainloop. Ця функція дає короткий час на завершення
+        поточної озвучки, потім форсує вихід процесу через ``os._exit``.
+        """
+        self.is_running = False
+        logger.info("Force shutdown ініційовано після команди STOP.")
+
+        def _kill():
+            # Дочекатись, поки MouthThread доспіває останню репліку.
+            try:
+                deadline = time.time() + 5.0
+                while time.time() < deadline:
+                    pending = getattr(self, "output_queue", None)
+                    if pending is None or pending.empty():
+                        break
+                    time.sleep(0.1)
+            except Exception:
+                pass
+            try:
+                self._brain_pool.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass
+            logging.shutdown()
+            os._exit(0)
+
+        threading.Thread(target=_kill, daemon=True, name="ShutdownThread").start()
 
     def start_processing_loop(self) -> None:
         """Main command-processing loop.
@@ -310,16 +389,42 @@ class JarvisUltimate:
         watchdog.daemon = True
         watchdog.start()
 
+        status = None
+        err: Exception | None = None
         try:
             status = self.execute_command(cmd)
             if status == "STOP":
                 self.is_running = False
         except Exception as e:
+            err = e
             logger.error(f"BrainWorker: необроблена помилка: {e}", exc_info=True)
             self.audio.speak("Виникла системна помилка.")
         finally:
             watchdog.cancel()
             self.input_queue.task_done()
+            # Episodic Memory: автологування команди користувача.
+            if self.episodic_memory is not None:
+                try:
+                    if err is None:
+                        self.episodic_memory.log(
+                            kind="command", text=cmd, actor="user",
+                            meta={"status": status or "ok"},
+                        )
+                    else:
+                        self.episodic_memory.log(
+                            kind="error", text=cmd, actor="user",
+                            tags=["exception"], meta={"error": str(err)[:300]},
+                        )
+                except Exception as exc:
+                    logger.debug(f"episodic log failed: {exc}")
+
+            # ⛔ STOP: гарантоване завершення процесу.
+            # У режимі server.py / UI hub.py JarvisUltimate працює всередині
+            # daemon-потоку; вихід з start_processing_loop НЕ зупиняє uvicorn
+            # чи Tk mainloop. Тому після STOP ми форсуємо вихід процесу,
+            # давши короткий час на догравання поточної озвучки.
+            if status == "STOP":
+                self._force_shutdown()
 
     # ------------------------------------------------------------------
     # ROUTING HELPERS
@@ -405,6 +510,20 @@ class JarvisUltimate:
         observer.start()
         logger.info("Файловий моніторинг запущено.")
 
+    def start_library_watcher(self) -> None:
+        """Авто-індексація нових книг у LITERATURE_DIR.
+
+        Активується через env LIBRARY_WATCH=1 (за замовчуванням вимкнено,
+        щоб не сканувати диск без потреби)."""
+        if os.getenv("LIBRARY_WATCH", "0") not in ("1", "true", "True"):
+            return
+        try:
+            from core.library_watcher import LibraryWatcher
+            self._library_watcher = LibraryWatcher(self)
+            self._library_watcher.start()
+        except Exception as e:
+            logger.error(f"Не вдалося запустити LibraryWatcher: {e}")
+
     def start_hardware_monitor(self) -> None:
         def monitor():
             while self.is_running:
@@ -477,6 +596,9 @@ class JarvisUltimate:
             ("code_assistant",   self.handlers.cmd_code_assistant),
             ("calendar",         self.handlers.cmd_calendar),
             ("dictation",        self.handlers.cmd_dictation),
+            # ВАЖЛИВО: system_exit має перевірятися РАНІШЕ за stop_voice,
+            # бо тригер "стоп" зі stop_voice матчить будь-яку фразу зі словом
+            # "стоп" (напр. "нео стоп") і поверне CONTINUE замість завершення.
             ("system_exit",      self.handlers.cmd_system_exit),
             ("stop_voice",       self.handlers.cmd_stop_voice),
             ("memorize",         self.handlers.cmd_memorize),
@@ -490,6 +612,29 @@ class JarvisUltimate:
                 if self._trigger_in_cmd(trigger, cmd):
                     logger.info(f"execute_command: маршрут '{key}' для команди {cmd!r}")
                     return handler(cmd)
+                # Fuzzy fallback для багатослівних тригерів (STT-помилки).
+                # Вимагаємо щоб і команда була багатослівною — інакше короткі
+                # репліки на кшталт 'стоп' хибно матчать 'стоп система'.
+                if (len(trigger.split()) >= 2
+                        and len(cmd.split()) >= 2
+                        and self.fuzzy_in_command(cmd, trigger, threshold=80)):
+                    logger.info(f"execute_command: fuzzy маршрут '{key}' для команди {cmd!r} (тригер='{trigger}')")
+                    return handler(cmd)
+
+        # ФОЛБЕК: якщо жоден тригер не зматчив и IntentRouter вмикнено —
+        # питаємо LLM, який маршрут обрати. При впевненості → викликаємо відповідний
+        # handler в ROUTES; інакше — розмова.
+        if self.intent_router is not None:
+            try:
+                guess = self.intent_router.classify(cmd)
+                logger.info(f"execute_command: IntentRouter → {guess}")
+                if (guess.name in dict(ROUTES)
+                        and guess.confidence >= getattr(config, "INTENT_ROUTER_MIN_CONF", 0.55)):
+                    handler = dict(ROUTES)[guess.name]
+                    logger.info(f"execute_command: LLM-маршрут '{guess.name}' (conf={guess.confidence:.2f}, src={guess.source})")
+                    return handler(cmd)
+            except Exception as e:
+                logger.warning(f"IntentRouter помилка: {e}")
 
         logger.info(f"execute_command: маршрут не знайдено, передаю в handle_ai_chat: {cmd!r}")
         return self.handle_ai_chat(cmd)

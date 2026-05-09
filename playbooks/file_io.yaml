@@ -1,0 +1,42 @@
+domain: file_io
+description: Файлові операції — переіменування, копіювання, обхід директорій.
+
+keywords:
+  - перейменування
+  - переіменува
+  - папк
+  - directory
+  - каталог
+  - сортування файлів
+  - організ файлів
+
+architect_hints: |
+  - Path-based, не os.path string-конкатенація.
+  - Atomic write: tmp → rename, ніколи прямий запис.
+  - Backup перед перезаписом критичних файлів.
+  - Path.resolve() + перевірка префіксу для захисту від traversal.
+  - rglob — обмежувати кількістю / max-depth.
+
+reviewer_checklist: |
+  ОСОБЛИВІ КРИТЕРІЇ ДЛЯ FILE-IO:
+    • path-traversal захист (Path.resolve + перевірка, що результат всередині base)?
+    • Атомарний запис (tmp → rename)? backup перед перезаписом?
+    • encoding="utf-8" явно? Обробка PermissionError/FileNotFoundError?
+    • with-блоки для всіх файлів?
+    • rglob обмежений за глибиною / кількістю результатів?
+    • Чи розрізняються файли від директорій (is_file vs is_dir)?
+
+examples_dont: |
+  # ❌ Path traversal + no atomic
+  user_path = base + "/" + user_input
+  open(user_path, "w").write(data)
+
+examples_do: |
+  # ✅ Safe path + atomic
+  base = Path(base).resolve()
+  target = (base / user_input).resolve()
+  if base not in target.parents and target != base:
+      raise ValueError("Path escapes base directory")
+  tmp = target.with_suffix(target.suffix + ".tmp")
+  tmp.write_text(data, encoding="utf-8")
+  tmp.replace(target)

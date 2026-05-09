@@ -1,0 +1,69 @@
+domain: security
+description: |
+  Security tools — vulnerability scanners, pentest helpers, exploit PoCs.
+  Високий ризик: SSRF, false positives, юридичні наслідки.
+
+keywords:
+  - сканер
+  - вразлив
+  - vuln
+  - exploit
+  - sql injection
+  - xss
+  - csrf
+  - ssrf
+  - пентест
+  - pentest
+  - взлом
+  - brute
+  - port scan
+  - перевірка безпеки
+  - перевір сайт
+  - оцінка безпеки
+
+architect_hints: |
+  - Спроєктуй allowlist цілей (URL-домен, IP-діапазон) як обовʼязковий аргумент.
+  - Передбач rate-limit (наприклад, 1-2 req/sec за замовчуванням) і configurable timeout.
+  - Окремий модуль payload-сигнатур у конфігу/JSON, не захардкоджений у коді.
+  - Структуруй детектори як plugin-и: один клас на тип вразливості (SQLi, XSS, ...).
+  - Додай явний disclaimer/legal-warning у CLI та docstring.
+
+reviewer_checklist: |
+  ОСОБЛИВІ КРИТЕРІЇ ДЛЯ SECURITY-TOOL:
+    • Чи є allowlist/denylist цілей? Блокування приватних IP (127.0.0.0/8, 10.0.0.0/8,
+      172.16.0.0/12, 192.168.0.0/16) та metadata-endpoints (169.254.169.254)?
+    • Чи детекція стійка до false positives? Наявність слова 'помилка' чи 'sql' у відповіді
+      НЕ є доказом вразливості.
+    • Чи використовуються специфічні сигнатури СУБД, time-based або boolean-based методи?
+    • Чи враховано контекст рефлексії XSS-payload (HTML/attr/JS — по-різному екрануються)?
+    • Чи є rate-limit / timeout / backoff між запитами? Чи закривається requests.Session?
+    • Чи є явне попередження про дозвіл власника цілі та повага до robots.txt?
+    • Порт-скан 80/443 НЕ є vulnerability — відрізняй 'open' від 'unexpected'.
+    • Чи логуються всі запити для аудиту (хто, коли, до якої цілі)?
+
+examples_dont: |
+  # ❌ False positive on substring
+  if "sql" in response.text.lower():
+      print("SQL Injection found!")
+
+  # ❌ Hardcoded payloads
+  payloads = ["' OR 1=1--", "<script>alert(1)</script>"]
+
+  # ❌ No SSRF protection
+  requests.get(user_provided_url)
+
+examples_do: |
+  # ✅ Specific DB signatures
+  SQL_ERROR_SIGNATURES = [
+      r"You have an error in your SQL syntax",
+      r"ORA-\d{5}",
+      r"PostgreSQL.*ERROR",
+  ]
+  if any(re.search(p, response.text) for p in SQL_ERROR_SIGNATURES):
+      ...
+
+  # ✅ SSRF guard
+  from ipaddress import ip_address
+  host = urlparse(url).hostname
+  if ip_address(socket.gethostbyname(host)).is_private:
+      raise ValueError("Private IPs are blocked")
