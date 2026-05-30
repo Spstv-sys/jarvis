@@ -32,7 +32,7 @@ class Verdict:
 
 class Critic:
     _PROMPT = (
-        "Ти — самокритик AI-асистента Джарвіс. Оціни, чи досягнута ціль користувача.\n\n"
+        "Ти — самокритик AI-асистента {name}. Оціни, чи досягнута ціль користувача.\n\n"
         "ЦІЛЬ: {goal!r}\n\n"
         "ПЛАН І РЕЗУЛЬТАТИ КРОКІВ:\n{trace}\n\n"
         "Поверни СТРОГО JSON одним рядком:\n"
@@ -80,7 +80,12 @@ class Critic:
 
         # LLM-оцінка.
         trace = self._format_trace(results)
-        prompt = self._PROMPT.format(goal=goal, trace=trace)
+        try:
+            import config as _cfg
+            name = getattr(_cfg, "ASSISTANT_NAME", "Нео")
+        except Exception:
+            name = "Нео"
+        prompt = self._PROMPT.format(name=name, goal=goal, trace=trace)
         try:
             raw = self._llm_call(prompt)
         except Exception as e:

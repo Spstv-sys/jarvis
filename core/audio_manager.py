@@ -65,6 +65,9 @@ class AudioManager:
         self._output_cb     = output_callback
         self.current_volume = 0
         self.whisper_model  = None
+        self._bias_prompt_cache = None   # ASR bias: текст промпта
+        self._bias_prompt_ids   = None   # ASR bias: prompt_ids для HF-pipeline
+        self._bias_hf_disabled  = False  # HF не підтримав prompt_ids — більше не пробувати
         self._whisper_ready = threading.Event()
         self._speak_lock    = threading.Lock()
         self._is_speaking   = threading.Event()
@@ -131,7 +134,7 @@ class AudioManager:
             processor = AutoProcessor.from_pretrained(base_model_id)
             model = AutoModelForSpeechSeq2Seq.from_pretrained(
                 base_model_id,
-                torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32
+                dtype=torch.float16 if torch.cuda.is_available() else torch.float32
             )
             model = PeftModel.from_pretrained(model, lora_adapter_path)
             device = 0 if torch.cuda.is_available() else 'cpu'
@@ -270,7 +273,7 @@ class AudioManager:
         if not clean_text:
             return
 
-        print(f"{Fore.GREEN}🤖 [ДЖАРВІС]: {clean_text}")
+        print(f"{Fore.GREEN}🤖 [{config.ASSISTANT_NAME.upper()}]: {clean_text}")
 
         tmp      = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False)
         tmp_path = tmp.name
@@ -406,7 +409,7 @@ class AudioManager:
 
     def _whisper_wake_word_fallback(self) -> bool:
         """Fallback: записує ~3 секунди через speech_recognition і перевіряє
-        чи є слово 'джарвіс' у Whisper-транскрипції."""
+        чи є слово імені асистента (config.ASSISTANT_NAME_FORMS) у Whisper-транскрипції."""
         # Wait briefly for Whisper to finish loading in the background.
         if self.whisper_model is None:
             self._whisper_ready.wait(timeout=30)
@@ -414,7 +417,8 @@ class AudioManager:
             logger.error("Whisper-fallback: Whisper не завантажено, wake word неможливо детектувати.")
             return False
 
-        print(f"\n{Fore.YELLOW}🎧 [Whisper-fallback] Очікування команди 'джарвіс'...")
+        wake_forms = [w.lower() for w in getattr(config, "ASSISTANT_NAME_FORMS", [config.ASSISTANT_NAME.lower()])]
+        print(f"\n{Fore.YELLOW}🎧 [Whisper-fallback] Очікування команди '{config.ASSISTANT_NAME}'...")
         tmp      = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
         tmp_path = tmp.name
         tmp.close()
@@ -443,7 +447,7 @@ class AudioManager:
             text = "".join(s.text for s in segments).strip().lower()
             logger.debug(f"Whisper-fallback: розпізнано '{text}'")
 
-            if "джарвіс" in text or "jarvis" in text:
+            if any(w in text for w in wake_forms):
                 logger.info(f"Whisper-fallback: wake word виявлено в тексті '{text}'")
                 self.play_fx("wake")
                 self.current_volume = 0
@@ -513,6 +517,19 @@ class AudioManager:
             with open(tmp_path, "wb") as f:
                 f.write(wav_bytes)
 
+            # Affect: дешеві акустичні фічі → emotional state користувача.
+            # Не блокує STT помилками; вимикається встановленням AFFECT_AUDIO=0.
+            try:
+                import os as _os
+                if _os.getenv("AFFECT_AUDIO", "1") != "0":
+                    from core.audio_features import extract_features_from_bytes
+                    from core.affect import get_affect
+                    feats = extract_features_from_bytes(wav_bytes)
+                    if feats and feats.get("voiced_ratio", 0) > 0.05:
+                        get_affect().observe_audio(feats)
+            except Exception as _e:
+                logger.debug(f"[Affect] audio observe failed: {_e}")
+
             # Діагностика: тип моделі, розмір аудіо
             try:
                 from faster_whisper import WhisperModel as _FWModel
@@ -540,6 +557,7 @@ class AudioManager:
                     vad_filter=True,
                     vad_parameters=dict(min_silence_duration_ms=400),
                     condition_on_previous_text=False,
+                    initial_prompt=self._bias_prompt() or None,
                 )
                 segs_list = list(segments)
                 logger.info(
@@ -552,11 +570,7 @@ class AudioManager:
                 # Hugging Face pipeline (LoRA-адаптер на whisper-small).
                 # Для актуальних transformers потрібна повна назва мови та явний task,
                 # інакше модель може повертати порожній текст.
-                result = self.whisper_model(
-                    tmp_path,
-                    return_timestamps=True,
-                    generate_kwargs={"language": "ukrainian", "task": "transcribe"},
-                )
+                result = self._hf_pipeline_call(tmp_path)
                 logger.info(f"[DEBUG] pipeline result: {result}")
                 if isinstance(result, dict) and "text" in result:
                     text = (result["text"] or "").strip().lower()
@@ -565,10 +579,10 @@ class AudioManager:
 
             logger.info(f"[DEBUG] recognized text: '{text}'")
             if text:
-                # Прибрати ведучі wake-word слова: "слухай", "слухаю", "джарвіс", "jarvis"
+                # Прибрати ведучі wake-word слова: "слухай", "слухаю", ім'я асистента
                 # (користувач часто повторює їх перед командою)
                 text = re.sub(
-                    r'^[\s,\.\-]*(?:слухай(?:те)?|слухаю|джарв[іи]с|jarvis|hey\s+jarvis)[\s,\.\-:]+',
+                    r'^[\s,\.\-]*(?:слухай(?:те)?|слухаю|нео|neo|джарв[іи]с|jarvis|hey\s+jarvis)[\s,\.\-:]+',
                     '',
                     text,
                     flags=re.IGNORECASE,
@@ -577,6 +591,11 @@ class AudioManager:
                     logger.warning("[DEBUG] Після зрізання wake-префіксу команда порожня — None.")
                     return None
                 print(f"{Fore.YELLOW}💬 Ви: {text}")
+                try:
+                    from core import voice_log
+                    voice_log.log_utterance(text, wav_bytes)
+                except Exception:
+                    pass
                 return text
             logger.warning("[DEBUG] Розпізнавання повернуло порожній текст — повертаю None.")
             return None
@@ -601,6 +620,42 @@ class AudioManager:
                 logger.info("PyAudio завершено.")
         except Exception as e:
             logger.error(f"Помилка закриття PyAudio: {e}")
+
+    def _bias_prompt(self) -> str:
+        """Текст bias-підказки (кешований). Порожній рядок = біасинг вимкнено."""
+        if getattr(config, "ASR_BIAS_ENABLED", True) is False:
+            return ""
+        if self._bias_prompt_cache is None:
+            try:
+                from core.asr_bias import command_prompt
+                self._bias_prompt_cache = command_prompt() or ""
+            except Exception:
+                self._bias_prompt_cache = ""
+        return self._bias_prompt_cache
+
+    def _hf_pipeline_call(self, path: str):
+        """HF-pipeline транскрипція з опційним prompt_ids-біасингом і безпечним фолбеком.
+
+        Якщо встановлена версія transformers не приймає prompt_ids — біасинг
+        тихо вимикається (одне попередження), і далі працює звичайний шлях.
+        """
+        gk = {"language": "ukrainian", "task": "transcribe"}
+        prompt = self._bias_prompt()
+        if prompt and not self._bias_hf_disabled:
+            try:
+                if self._bias_prompt_ids is None:
+                    _dev = next(self.whisper_model.model.parameters()).device
+                    self._bias_prompt_ids = self.whisper_model.tokenizer.get_prompt_ids(
+                        prompt, return_tensors="pt"
+                    ).to(_dev)
+                return self.whisper_model(
+                    path, return_timestamps=True,
+                    generate_kwargs={**gk, "prompt_ids": self._bias_prompt_ids},
+                )
+            except Exception as e:
+                logger.warning(f"ASR bias: HF prompt_ids не застосовано, вимикаю біасинг: {e}")
+                self._bias_hf_disabled = True
+        return self.whisper_model(path, return_timestamps=True, generate_kwargs=gk)
 
     def transcribe_file(self, path: str) -> str:
         """Розпізнати довільний аудіо-файл (wav/webm/ogg/mp3) існуючою Whisper моделлю.
@@ -627,14 +682,11 @@ class AudioManager:
                 vad_filter=True,
                 vad_parameters=dict(min_silence_duration_ms=400),
                 condition_on_previous_text=False,
+                initial_prompt=self._bias_prompt() or None,
             )
             text = "".join(s.text for s in segments).strip()
         else:
-            result = self.whisper_model(
-                path,
-                return_timestamps=True,
-                generate_kwargs={"language": "ukrainian", "task": "transcribe"},
-            )
+            result = self._hf_pipeline_call(path)
             if isinstance(result, dict) and "text" in result:
                 text = (result["text"] or "").strip()
             else:

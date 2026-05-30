@@ -35,10 +35,11 @@ def test_enqueue_speech_puts_to_queue(jarvis_instance):
 
 
 def test_enqueue_speech_calls_ui_callback(jarvis_instance):
+    import config
     callback = MagicMock()
     jarvis_instance.ui_callback = callback
     jarvis_instance.enqueue_speech("Тест колбеку")
-    callback.assert_called_once_with("Джарвіс", "Тест колбеку")
+    callback.assert_called_once_with(config.ASSISTANT_NAME, "Тест колбеку")
 
 
 def test_cmd_stop_voice(jarvis_instance):

@@ -17,6 +17,7 @@ from transformers import (
     Seq2SeqTrainer,
 )
 from peft import LoraConfig, get_peft_model, PeftModel
+import random
 
 # ==========================================
 # 0. CLI
@@ -25,7 +26,9 @@ parser = argparse.ArgumentParser(description="Whisper LoRA fine-tune (Jarvis UA)
 parser.add_argument("--resume", action="store_true", help="\u041f\u0440\u043e\u0434\u043e\u0432\u0436\u0438\u0442\u0438 \u0437 \u043e\u0441\u0442\u0430\u043d\u043d\u044c\u043e\u0433\u043e checkpoint-* \u0432 OUTPUT_DIR")
 parser.add_argument("--max-steps", type=int, default=500, help="\u041c\u0430\u043a\u0441\u0438\u043c\u0443\u043c \u043a\u0440\u043e\u043a\u0456\u0432 \u0442\u0440\u0435\u043d\u0443\u0432\u0430\u043d\u043d\u044f")
 parser.add_argument("--extra-steps", type=int, default=200, help="\u041f\u0440\u0438 --resume: \u043d\u0430 \u0441\u043a\u0456\u043b\u044c\u043a\u0438 \u0434\u043e\u0434\u0430\u0442\u043a\u043e\u0432\u0438\u0445 \u043a\u0440\u043e\u043a\u0456\u0432 \u043f\u0456\u0434\u043d\u044f\u0442\u0438 \u043b\u0456\u043c\u0456\u0442")
-parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
+parser.add_argument("--lr", type=float, default=5e-4, help="Learning rate (default знижено до 5e-4 для стабільності на малому датасеті)")
+parser.add_argument("--aug", action="store_true", default=True, help="Аугментація аудіо (гауссів шум + pitch-shift): default True")
+parser.add_argument("--no-aug", dest="aug", action="store_false", help="Вимкнути аугментацію")
 args = parser.parse_args()
 
 
@@ -70,10 +73,10 @@ if args.resume:
         print(f"[*] Resume: \u0437\u043d\u0430\u0439\u0434\u0435\u043d\u043e {last_ckpt} (step={last_step})")
         # \u0417\u0430\u0432\u0430\u043d\u0442\u0430\u0436\u0438\u0442\u0438 LoRA \u0430\u0434\u0430\u043f\u0442\u0435\u0440 \u0437 \u0447\u0435\u043a\u043f\u043e\u0457\u043d\u0442\u0430 \u0437\u0430\u043c\u0456\u0441\u0442\u044c \u0441\u0432\u0456\u0436\u043e\u0457 \u0456\u043d\u0456\u0446\u0456\u0430\u043b\u0456\u0437\u0430\u0446\u0456\u0457
         model = PeftModel.from_pretrained(model, last_ckpt, is_trainable=True)
-        # \u041f\u0456\u0434\u043d\u044f\u0442\u0438 max_steps, \u0449\u043e\u0431 \u0431\u0443\u043b\u043e \u043a\u0443\u0434\u0438 \u0440\u043e\u0441\u0442\u0438
+        # Підняти max_steps, щоб було куди рости (extra_steps від поточного)
         if args.max_steps <= last_step:
             args.max_steps = last_step + args.extra_steps
-            print(f"[*] max_steps \u043f\u0456\u0434\u043d\u044f\u0442\u043e \u0434\u043e {args.max_steps} (last_step={last_step} + extra={args.extra_steps})")
+        print(f"[*] max_steps = {args.max_steps} (last_step={last_step} + extra={args.extra_steps})")
     else:
         print("[!] --resume \u0432\u043a\u0430\u0437\u0430\u043d\u043e, \u0430\u043b\u0435 \u0447\u0435\u043a\u043f\u043e\u0457\u043d\u0442\u0456\u0432 \u043d\u0435 \u0437\u043d\u0430\u0439\u0434\u0435\u043d\u043e \u2014 \u043f\u043e\u0447\u0438\u043d\u0430\u044e \u0437 \u043d\u0443\u043b\u044f.")
         args.resume = False
@@ -82,8 +85,9 @@ if not args.resume:
     lora_config = LoraConfig(
         r=32,
         lora_alpha=64,
-        target_modules=["q_proj", "v_proj"],
-        lora_dropout=0.05,
+        # Додаємо більше шарів для кращого навчання на малому датасеті
+        target_modules=["q_proj", "v_proj", "k_proj", "out_proj"],
+        lora_dropout=0.1,   # підвищено для регуляризації на ~250 семплах
         bias="none"
     )
     model = get_peft_model(model, lora_config)
@@ -152,6 +156,39 @@ def prepare_dataset_func(batch):
             from scipy.signal import resample
             audio = resample(audio, int(len(audio) * 16000 / sr))
             sr = 16000
+
+        # --- Аугментація (тільки якщо --aug, тобто за замовчуванням ON) --------
+        # На малому датасеті (~250 семплів) аугментація критично важлива:
+        # без неї модель перенавчається вже після 200-300 кроків і не
+        # узагальнює нові вимови тих самих слів.
+        #
+        # 1) Гауссів шум (SNR ~20-40 dB) — симулює мікрофонний шум і
+        #    різну відстань від мікрофона.
+        # 2) Pitch-shift ±2 напівтони через ресемплінг — навчає модель
+        #    не прив'язуватись до конкретного тембру голосу.
+        # 3) Рандомне масштабування гучності ×0.7..1.3 — варіація рівня.
+        if args.aug and random.random() < 0.75:  # аугментуємо 75% семплів
+            aug_type = random.random()
+            if aug_type < 0.4:
+                # Гауссів шум
+                snr_db = random.uniform(20, 40)
+                noise_amp = float(np.std(audio)) / (10 ** (snr_db / 20))
+                audio = audio + (noise_amp * np.random.randn(len(audio))).astype(np.float32)
+            elif aug_type < 0.7:
+                # Pitch-shift ±1-2 напівтони через ресемплінг
+                semitones = random.choice([-2, -1, 1, 2])
+                rate = 2 ** (semitones / 12.0)
+                from scipy.signal import resample
+                shifted = resample(audio, int(len(audio) / rate)).astype(np.float32)
+                # Обрізаємо/паддінгуємо до оригінальної довжини
+                if len(shifted) > len(audio):
+                    audio = shifted[:len(audio)]
+                else:
+                    audio = np.pad(shifted, (0, len(audio) - len(shifted)))
+            else:
+                # Масштабування гучності
+                gain = random.uniform(0.7, 1.3)
+                audio = np.clip(audio * gain, -1.0, 1.0).astype(np.float32)
 
         # --- Silence trim ---------------------------------------------------
         # Усі семпли в датасеті жорстко обрізані до 4 с, тож ~40% мають
@@ -226,23 +263,48 @@ class DataCollatorSpeechSeq2SeqWithPadding:
 data_collator = DataCollatorSpeechSeq2SeqWithPadding(processor=processor)
 
 use_fp16 = torch.cuda.is_available()
+
+# --- Авторозрахунок max_steps якщо не вказано явно ---------------------------
+# Для малого датасету рекомендуємо 10-15 епох замість фіксованих кроків.
+# Ефективний батч = per_device_train_batch_size * gradient_accumulation_steps
+_BATCH = 4
+_ACCUM = 4  # збільшено з 2 → ефективний батч 16 (краще для малого датасету)
+_EFFECTIVE_BATCH = _BATCH * _ACCUM
+_steps_per_epoch = max(1, len(final_dataset) // _EFFECTIVE_BATCH)
+_TARGET_EPOCHS = 15  # 15 повних проходів по датасету
+_auto_steps = _steps_per_epoch * _TARGET_EPOCHS
+
+if args.max_steps == 500 and not args.resume:
+    # Якщо не вказано явно — використовуємо авторозрахунок
+    effective_steps = _auto_steps
+    print(f"[*] Авторозрахунок: {len(final_dataset)} семплів × {_TARGET_EPOCHS} epochs "
+          f"/ batch {_EFFECTIVE_BATCH} = {effective_steps} steps")
+else:
+    effective_steps = args.max_steps
+
+_warmup = min(100, effective_steps // 10)  # 10% від кроків, але не більше 100
+
 training_args = Seq2SeqTrainingArguments(
     output_dir=OUTPUT_DIR,
-    per_device_train_batch_size=4,      # GPU: вмістимо 4 семпли у VRAM
-    gradient_accumulation_steps=2,      # Ефективний батч = 8
+    per_device_train_batch_size=_BATCH,
+    gradient_accumulation_steps=_ACCUM,   # ефективний батч = 16
     learning_rate=args.lr,
-    warmup_steps=50,
-    max_steps=args.max_steps,
-    save_steps=100,
-    save_total_limit=3,                 # тримаємо лише 3 останніх чекпоінти
+    warmup_steps=_warmup,                 # авторозрахунок
+    max_steps=effective_steps,
+    lr_scheduler_type="cosine",           # cosine decay — краще для малих датасетів
+    save_steps=max(50, effective_steps // 10),
+    save_total_limit=3,
     logging_steps=10,
     fp16=use_fp16,
     bf16=False,
-    dataloader_num_workers=0,           # Windows: уникаємо проблем з multiprocessing
+    dataloader_num_workers=0,             # Windows: уникаємо проблем з multiprocessing
     generation_max_length=225,
     remove_unused_columns=False,
     label_names=["labels"],
     report_to="none",
+    # Для малого датасету weight_decay допомагає проти перенавчання
+    weight_decay=0.01,
+    max_grad_norm=1.0,
 )
 
 trainer = Seq2SeqTrainer(

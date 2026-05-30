@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 import config
+from core.sandbox import run_python
 
 # Робимо тригери максимально природними
 TRIGGERS = [
@@ -64,26 +65,21 @@ def execute(cmd, jarvis):
 
     jarvis.audio.speak(f"Використовую скрипт {selected_file}.")
 
-    # 4. Запуск обраного скрипта
+    # 4. Запуск обраного скрипта (у пісочниці)
     try:
-        result = subprocess.run(
-            [sys.executable, filepath],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-        
-        if result.stderr:
-            return f"Під час роботи скрипта виникла помилка: {result.stderr[-150:]}"
-        
-        output = result.stdout.strip()
-        
-        if len(output) > 400:
-            return f"Задачу виконано. Результат завеликий, ось початок: {output[:250]}..."
-            
-        return f"Результат: {output if output else 'Скрипт успішно відпрацював.'}"
+        result = run_python(filepath, timeout=15)
 
-    except subprocess.TimeoutExpired:
-        return "Скрипт завис і був примусово зупинений через 15 секунд."
+        if result.timed_out:
+            return "Скрипт завис і був примусово зупинений через 15 секунд."
+        if not result.ok and result.stderr:
+            return f"Під час роботи скрипта виникла помилка ({result.engine}): {result.stderr[-150:]}"
+
+        output = (result.stdout or "").strip()
+
+        if len(output) > 400:
+            return f"Задачу виконано ({result.engine}). Результат завеликий, ось початок: {output[:250]}..."
+
+        return f"Результат ({result.engine}): {output if output else 'Скрипт успішно відпрацював.'}"
+
     except Exception as e:
         return f"Не вдалося виконати скрипт: {str(e)}"

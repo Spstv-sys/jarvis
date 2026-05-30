@@ -1,0 +1,88 @@
+model,path,ref,hyp,wer,cer,route_ref,route_hyp,route_ok
+lora,test_audio/test_0001.wav,онови базу знань,поновий баз узнань,1.0,0.1429,update_knowledge,update_knowledge,1
+lora,test_audio/test_0002.wav,створи навичку таймер помодоро,Створи навичку таймер помодоро,0.0,0.0,learn_skill,learn_skill,1
+lora,test_audio/test_0003.wav,активуй навичку скілл таймер,активуй навичку скіл таймер,0.25,0.04,activate_skill,activate_skill,1
+lora,test_audio/test_0004.wav,яка погода в сумах,яка погода в сумах,0.0,0.0,weather_exact,weather_exact,1
+lora,test_audio/test_0005.wav,яка температура надворі,яка температура надворі,0.0,0.0,weather,weather,1
+lora,test_audio/test_0006.wav,увімкни спокійну музику,увімкни спокійну музику,0.0,0.0,youtube_play,youtube_play,1
+lora,test_audio/test_0007.wav,знайди відео про котів,знайди відео про котів,0.0,0.0,youtube_search,youtube_search,1
+lora,test_audio/test_0008.wav,останні новини україни,Останні новини України,0.0,0.0,news,news,1
+lora,test_audio/test_0009.wav,який курс долара сьогодні,який курс долара сьогодні,0.0,0.0,finance,finance,1
+lora,test_audio/test_0010.wav,перемкни на джеміні,перемкни на джеміні,0.0,0.0,switch_ai,switch_ai,1
+lora,test_audio/test_0011.wav,режим програміст,режим програміст,0.0,0.0,personality,personality,1
+lora,test_audio/test_0012.wav,на чому ти працюєш,на чому ти працюєш,0.0,0.0,check_ai,check_ai,1
+lora,test_audio/test_0013.wav,таймер на десять хвилин, таймер на десять хвилин,0.0,0.0,timer,timer,1
+lora,test_audio/test_0014.wav,зроби тихіше,зроби тихіше,0.0,0.0,hardware,hardware,1
+lora,test_audio/test_0015.wav,додай яскравість,додай яскравість,0.0,0.0,hardware,hardware,1
+lora,test_audio/test_0016.wav,відкрий браузер,відкрий браузер,0.0,0.0,apps_os,apps_os,1
+lora,test_audio/test_0017.wav,що на екрані,що на екрані,0.0,0.0,vision,vision,1
+lora,test_audio/test_0018.wav,поясни код файлу мейн,поясни код файлу мейн,0.0,0.0,code_assistant,code_assistant,1
+lora,test_audio/test_0019.wav,які плани на сьогодні,які плани на сьогодні,0.0,0.0,calendar,calendar,1
+lora,test_audio/test_0020.wav,режим диктування,режим диктування,0.0,0.0,dictation,dictation,1
+lora,test_audio/test_0021.wav,вимкни себе,вимкни себе,0.0,0.0,system_exit,system_exit,1
+lora,test_audio/test_0022.wav,стоп,стоп,0.0,0.0,stop_voice,stop_voice,1
+lora,test_audio/test_0023.wav,замовкни будь ласка,замовкни будь ласка,0.0,0.0,stop_voice,stop_voice,1
+lora,test_audio/test_0024.wav,запамятай мій номер нуль п'ять нуль,запам'ятай мій номер нуль п'ять нуль,0.1667,0.0333,memorize,memorize,1
+lora,test_audio/test_0025.wav,що таке квантовий компʼютер,що таке квантовий компютер,0.25,0.0417,web_search,web_search,1
+lora,test_audio/test_0026.wav,знайди файл звіт,знайди файл звіт,0.0,0.0,find_file,find_file,1
+lora,test_audio/test_0027.wav,розкажи анекдот,розкажи анекдот,0.0,0.0,web_search,web_search,1
+lora,test_audio/test_0028.wav,як у тебе справи,як у тебе справи,0.0,0.0,chat,chat,1
+lora,test_audio/test_0029.wav,дякую тобі велике,дякую тобі велике,0.0,0.0,chat,chat,1
+turbo,test_audio/test_0001.wav,онови базу знань,а нову базу знань,0.6667,0.1429,update_knowledge,update_knowledge,1
+turbo,test_audio/test_0002.wav,створи навичку таймер помодоро,Створи навичку таймер помодоро,0.0,0.0,learn_skill,learn_skill,1
+turbo,test_audio/test_0003.wav,активуй навичку скілл таймер,Активую навичку скілл таймер,0.25,0.04,activate_skill,activate_skill,1
+turbo,test_audio/test_0004.wav,яка погода в сумах,Яка погода у сумах,0.25,0.0667,weather_exact,weather_exact,1
+turbo,test_audio/test_0005.wav,яка температура надворі,Яка температура на дворі,0.6667,0.0,weather,weather,1
+turbo,test_audio/test_0006.wav,увімкни спокійну музику,Увімкни спокійну музику,0.0,0.0,youtube_play,youtube_play,1
+turbo,test_audio/test_0007.wav,знайди відео про котів,знайди відео про котів,0.0,0.0,youtube_search,youtube_search,1
+turbo,test_audio/test_0008.wav,останні новини україни,Останні новини України,0.0,0.0,news,news,1
+turbo,test_audio/test_0009.wav,який курс долара сьогодні,який курс долара сьогодні,0.0,0.0,finance,finance,1
+turbo,test_audio/test_0010.wav,перемкни на джеміні,Парамкни на джеміні,0.3333,0.1176,switch_ai,chat,0
+turbo,test_audio/test_0011.wav,режим програміст,Режим програміст,0.0,0.0,personality,personality,1
+turbo,test_audio/test_0012.wav,на чому ти працюєш,На чому ти працюєш?,0.0,0.0,check_ai,check_ai,1
+turbo,test_audio/test_0013.wav,таймер на десять хвилин,Таймер на 10 хвилин,0.25,0.3,timer,timer,1
+turbo,test_audio/test_0014.wav,зроби тихіше,зробити хіша,1.0,0.0909,hardware,chat,0
+turbo,test_audio/test_0015.wav,додай яскравість,Тодай яскравість,0.5,0.0667,hardware,hardware,1
+turbo,test_audio/test_0016.wav,відкрий браузер,Ви открыть браузер,1.0,0.4286,apps_os,chat,0
+turbo,test_audio/test_0017.wav,що на екрані,Ще на екране,0.6667,0.2,vision,vision,1
+turbo,test_audio/test_0018.wav,поясни код файлу мейн,Поясний код файлу маїна,0.5,0.2222,code_assistant,code_assistant,1
+turbo,test_audio/test_0019.wav,які плани на сьогодні,Які плани на сьогодні?,0.0,0.0,calendar,calendar,1
+turbo,test_audio/test_0020.wav,режим диктування,Режим диктування,0.0,0.0,dictation,dictation,1
+turbo,test_audio/test_0021.wav,вимкни себе,вимкнись обе,1.0,0.2,system_exit,system_exit,1
+turbo,test_audio/test_0022.wav,стоп,стоп,0.0,0.0,stop_voice,stop_voice,1
+turbo,test_audio/test_0023.wav,замовкни будь ласка,замовкни будь ласка,0.0,0.0,stop_voice,stop_voice,1
+turbo,test_audio/test_0024.wav,запамятай мій номер нуль п'ять нуль,запам'ятайний номер 050,0.8333,0.5333,memorize,memorize,1
+turbo,test_audio/test_0025.wav,що таке квантовий компʼютер,ще такі квантовий компьютер,0.75,0.125,web_search,chat,0
+turbo,test_audio/test_0026.wav,знайди файл звіт,Знайд дэв файл збит,1.0,0.3571,find_file,chat,0
+turbo,test_audio/test_0027.wav,розкажи анекдот,розкажи анекдот,0.0,0.0,web_search,web_search,1
+turbo,test_audio/test_0028.wav,як у тебе справи,Як у тебе справи?,0.0,0.0,chat,chat,1
+turbo,test_audio/test_0029.wav,дякую тобі велике,Дякую тобі велике,0.0,0.0,chat,chat,1
+base,test_audio/test_0001.wav,онови базу знань, Поновий баз узнані,1.0,0.2143,update_knowledge,update_knowledge,1
+base,test_audio/test_0002.wav,створи навичку таймер помодоро, створи навичку таймер помодору,0.25,0.037,learn_skill,learn_skill,1
+base,test_audio/test_0003.wav,активуй навичку скілл таймер, активую навичку скілл таймер,0.25,0.04,activate_skill,activate_skill,1
+base,test_audio/test_0004.wav,яка погода в сумах, Яка погода у Сумах,0.25,0.0667,weather_exact,weather_exact,1
+base,test_audio/test_0005.wav,яка температура надворі, яка температура на дворі,0.6667,0.0,weather,weather,1
+base,test_audio/test_0006.wav,увімкни спокійну музику, овімкне спокійно музико,1.0,0.1905,youtube_play,chat,0
+base,test_audio/test_0007.wav,знайди відео про котів, найди відео про котів,0.25,0.0526,youtube_search,youtube_search,1
+base,test_audio/test_0008.wav,останні новини україни, Останні новини України,0.0,0.0,news,news,1
+base,test_audio/test_0009.wav,який курс долара сьогодні, який курс доллару сьогодні,0.25,0.0909,finance,finance,1
+base,test_audio/test_0010.wav,перемкни на джеміні, парамкни наджеміні,1.0,0.1176,switch_ai,chat,0
+base,test_audio/test_0011.wav,режим програміст, прижим програміст,0.5,0.1333,personality,personality,1
+base,test_audio/test_0012.wav,на чому ти працюєш, А чому ти протюєш?,0.5,0.2,check_ai,chat,0
+base,test_audio/test_0013.wav,таймер на десять хвилин, таймер на 10 хвилин,0.25,0.3,timer,timer,1
+base,test_audio/test_0014.wav,зроби тихіше, робити хиша,1.0,0.2727,hardware,chat,0
+base,test_audio/test_0015.wav,додай яскравість, додай я скравість,1.0,0.0,hardware,hardware,1
+base,test_audio/test_0016.wav,відкрий браузер, відкри браузер,0.5,0.0714,apps_os,apps_os,1
+base,test_audio/test_0017.wav,що на екрані, що на екрані,0.0,0.0,vision,vision,1
+base,test_audio/test_0018.wav,поясни код файлу мейн, поясної код файлумаїна,0.75,0.2778,code_assistant,code_assistant,1
+base,test_audio/test_0019.wav,які плани на сьогодні, які плани на сьогодні,0.0,0.0,calendar,calendar,1
+base,test_audio/test_0020.wav,режим диктування, режим диктування,0.0,0.0,dictation,dictation,1
+base,test_audio/test_0021.wav,вимкни себе, вимкни себе,0.0,0.0,system_exit,system_exit,1
+base,test_audio/test_0022.wav,стоп, стоп,0.0,0.0,stop_voice,stop_voice,1
+base,test_audio/test_0023.wav,замовкни будь ласка, замовкне будь ласка,0.3333,0.0588,stop_voice,stop_voice,1
+base,test_audio/test_0024.wav,запамятай мій номер нуль п'ять нуль, запам'ятай мій номер нуль п'ять нуль,0.1667,0.0333,memorize,memorize,1
+base,test_audio/test_0025.wav,що таке квантовий компʼютер, ще таке квантовий комп'ютер,0.5,0.0833,web_search,web_search,1
+base,test_audio/test_0026.wav,знайди файл звіт, зної дри файлз вид,1.3333,0.3571,find_file,chat,0
+base,test_audio/test_0027.wav,розкажи анекдот, розкажи анекдот,0.0,0.0,web_search,web_search,1
+base,test_audio/test_0028.wav,як у тебе справи, Як у тебе справи?,0.0,0.0,chat,chat,1
+base,test_audio/test_0029.wav,дякую тобі велике, дякую тобі велика,0.3333,0.0667,chat,chat,1

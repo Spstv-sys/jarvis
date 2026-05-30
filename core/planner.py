@@ -60,7 +60,7 @@ class Planner:
     """Перетворює ціль на список кроків за допомогою LLM."""
 
     _PROMPT = (
-        "Ти — планувальник дій україномовного голосового асистента Джарвіс.\n"
+        "Ти — планувальник дій україномовного голосового асистента {assistant_name}.\n"
         "Розклади ціль користувача на послідовність простих кроків (1-{max_steps}).\n"
         "Кожен крок — це виклик ОДНОГО з доступних маршрутів/скілів.\n\n"
         "Доступні маршрути (skill — короткий опис):\n{routes_desc}\n\n"
@@ -104,19 +104,43 @@ class Planner:
         # Шар 7: підтягуємо релевантні уроки з минулого досвіду.
         lessons_block = ""
         try:
-            from core.reflector import get_reflector
-            lessons = get_reflector().recall(goal, top_k=3)
-            if lessons:
-                lines = [
-                    f"  • [{l['scope']}, conf={l['confidence']:.2f}] {l['text']}"
-                    for l in lessons
+            from core.reflector import get_reflector, SCOPE_USER_TRAIT
+            ref = get_reflector()
+            lessons = ref.recall(goal, top_k=3)
+            # Окремо — стійкі риси користувача (важливі завжди, не тільки за темою).
+            traits = ref.recall("користувач звичка", top_k=3)
+            traits = [t for t in traits if t.get("scope") == SCOPE_USER_TRAIT]
+            blocks = []
+            if traits:
+                tlines = [
+                    f"  • [conf={t['confidence']:.2f}] {t['text']}"
+                    for t in traits[:3]
                 ]
-                lessons_block = "УРОКИ З ДОСВІДУ:\n" + "\n".join(lines) + "\n\n"
-                think(STAGE_PLAN, f"уроків підтягнуто: {len(lessons)}", lessons=len(lessons))
+                blocks.append("ХАРАКТЕР КОРИСТУВАЧА:\n" + "\n".join(tlines))
+            if lessons:
+                # Виключити user_trait, щоб не дублювалися.
+                other = [l for l in lessons if l.get("scope") != SCOPE_USER_TRAIT]
+                if other:
+                    lines = [
+                        f"  • [{l['scope']}, conf={l['confidence']:.2f}] {l['text']}"
+                        for l in other
+                    ]
+                    blocks.append("УРОКИ З ДОСВІДУ:\n" + "\n".join(lines))
+            if blocks:
+                lessons_block = "\n\n".join(blocks) + "\n\n"
+                think(STAGE_PLAN,
+                      f"уроків підтягнуто: {len(lessons)} + traits: {len(traits)}",
+                      lessons=len(lessons), traits=len(traits))
         except Exception as e:
             logger.debug(f"[Planner] reflector recall skipped: {e}")
 
+        try:
+            import config as _cfg
+            assistant_name = getattr(_cfg, "ASSISTANT_NAME", "Нео")
+        except Exception:
+            assistant_name = "Нео"
         prompt = self._PROMPT.format(
+            assistant_name=assistant_name,
             max_steps=self._max_steps,
             routes_desc=routes_desc,
             lessons_block=lessons_block,

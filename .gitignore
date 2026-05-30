@@ -1,5 +1,7 @@
 # Python
 .venv/
+*venv*/
+.venvс/
 __pycache__/
 *.pyc
 *.pyo
@@ -22,6 +24,10 @@ ui/web/release/
 # Logs
 *.log
 logs/
+
+# Profile / debug dumps
+profile_load.txt
+profile_raw.txt
 
 # OS
 .DS_Store
@@ -56,3 +62,11 @@ my-dataset/
 literature/
 skills/pending/
 
+
+# Training checkpoints (v2 run — великі: optimizer.pt тощо)
+whisper-small-uk-jarvis-v2/
+# Voice-log runtime (Фаза 6)
+voice_logs/
+# SQLite WAL/SHM рантайм
+*.sqlite-shm
+*.sqlite-wal

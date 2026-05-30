@@ -1,8 +1,7 @@
 import os
-import subprocess
-import sys
 import config
 from rapidfuzz import process
+from core.sandbox import run_python
 
 TRIGGERS = ["запусти скрипт", "виконай програму", "відкрий інструмент"]
 
@@ -36,13 +35,15 @@ def execute(cmd, jarvis):
 
     try:
         filepath = os.path.join(code_dir, match)
-        result = subprocess.run([sys.executable, filepath], capture_output=True, text=True, timeout=15)
-        
-        if result.stderr:
-            return f"Помилка у скрипті: {result.stderr[-150:]}"
-        
-        output = result.stdout.strip()
-        return f"Виконано. Результат: {output if output else 'Скрипт відпрацював без виводу.'}"
+        result = run_python(filepath, timeout=15)
+
+        if result.timed_out:
+            return "Скрипт завис і був примусово зупинений через 15 секунд."
+        if not result.ok and result.stderr:
+            return f"Помилка у скрипті ({result.engine}): {result.stderr[-150:]}"
+
+        output = (result.stdout or "").strip()
+        return f"Виконано ({result.engine}). Результат: {output if output else 'Скрипт відпрацював без виводу.'}"
 
     except Exception as e:
         return f"Не вдалося виконати: {str(e)}"

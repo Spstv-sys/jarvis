@@ -32,11 +32,12 @@ from typing import Callable, List, Optional, Dict, Any
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-SCOPE_SKILL    = "skill"      # урок про конкретний скіл
-SCOPE_GOAL     = "goal"       # урок про тип цілі
-SCOPE_ROUTINE  = "routine"    # повторюваний патерн користувача
-SCOPE_GLOBAL   = "global"     # загальне спостереження
-SCOPE_LLM      = "llm"        # урок, згенерований LLM
+SCOPE_SKILL      = "skill"      # урок про конкретний скіл
+SCOPE_GOAL       = "goal"       # урок про тип цілі
+SCOPE_ROUTINE    = "routine"    # повторюваний патерн користувача
+SCOPE_GLOBAL     = "global"     # загальне спостереження
+SCOPE_LLM        = "llm"        # урок, згенерований LLM
+SCOPE_USER_TRAIT = "user_trait" # стійка риса користувача (час, тон, теми)
 
 
 @dataclass
@@ -187,6 +188,10 @@ class Reflector:
             lessons.extend(self._detect_routines(episodes))
         except Exception as e:
             logger.warning(f"[Reflector] routines: {e}")
+        try:
+            lessons.extend(self._detect_user_traits(episodes))
+        except Exception as e:
+            logger.warning(f"[Reflector] user_traits: {e}")
 
         # 2) Опційно — LLM-аналіз для більш креативних інсайтів.
         if self._use_llm and self._llm_call:
@@ -385,6 +390,138 @@ class Reflector:
                 evidence=[],
                 meta={"command": cmd, "count": n},
             ))
+        return out
+
+    def _detect_user_traits(self, episodes) -> List[Lesson]:
+        """Уроки ПРО КОРИСТУВАЧА: час доби, довжина команд, теми, тон.
+
+        Не про власну поведінку Jarvis, а про стійкі риси людини.
+        Допомагає підлаштовувати стиль відповіді (короткий/розгорнутий,
+        нічний/денний режим, очікувана тематика).
+        """
+        out: List[Lesson] = []
+        # Беремо лише команди користувача.
+        user_cmds = [
+            e for e in episodes
+            if e.kind == "command" and e.actor == "user" and (e.text or "").strip()
+        ]
+        if len(user_cmds) < 5:
+            return out
+
+        # ---- 1) Час доби активності --------------------------------
+        hour_buckets = Counter()
+        for e in user_cmds:
+            try:
+                hour = time.localtime(e.ts).tm_hour
+            except Exception:
+                continue
+            if   5 <= hour < 12: hour_buckets["ранок"]   += 1
+            elif 12 <= hour < 18: hour_buckets["день"]   += 1
+            elif 18 <= hour < 23: hour_buckets["вечір"]  += 1
+            else:                 hour_buckets["ніч"]    += 1
+        if hour_buckets:
+            top_period, top_n = hour_buckets.most_common(1)[0]
+            share = top_n / len(user_cmds)
+            if share >= 0.55 and top_n >= 4:
+                out.append(self._make(
+                    text=f"Користувач переважно активний у {top_period} "
+                         f"({int(share*100)}% запитів) — у цей час доречні "
+                         f"проактивні підказки, в інші — тиша.",
+                    scope=SCOPE_USER_TRAIT,
+                    confidence=min(0.5 + share * 0.4, 0.9),
+                    evidence=[],
+                    meta={"trait": "active_period", "period": top_period,
+                          "share": round(share, 2)},
+                ))
+
+        # ---- 2) Довжина команд --------------------------------------
+        lens = [len((e.text or "").split()) for e in user_cmds]
+        if lens:
+            avg = sum(lens) / len(lens)
+            if avg <= 3.0:
+                out.append(self._make(
+                    text=f"Користувач формулює дуже коротко (~{avg:.1f} слів) — "
+                         f"відповідай так само лаконічно, без розлогих пояснень.",
+                    scope=SCOPE_USER_TRAIT,
+                    confidence=0.75,
+                    evidence=[],
+                    meta={"trait": "terse", "avg_words": round(avg, 1)},
+                ))
+            elif avg >= 12.0:
+                out.append(self._make(
+                    text=f"Користувач любить розгорнуті формулювання (~{avg:.1f} слів) — "
+                         f"можеш давати докладніші відповіді з контекстом.",
+                    scope=SCOPE_USER_TRAIT,
+                    confidence=0.7,
+                    evidence=[],
+                    meta={"trait": "verbose", "avg_words": round(avg, 1)},
+                ))
+
+        # ---- 3) Повторювані тематичні слова -------------------------
+        STOP = {
+            "я","ти","мені","тобі","це","той","та","так","ні","щоб","як",
+            "що","де","коли","для","і","й","а","але","чи","в","у","на",
+            "з","до","від","про","за","по","the","a","an","and","or","to",
+            "of","in","on","is","it","be","you","i","me","my","can","do",
+            "jarvis","джарвіс","нео","please","будь","ласка",
+        }
+        word_counter: Counter = Counter()
+        for e in user_cmds:
+            for w in re.findall(r"[\w']+", (e.text or "").lower()):
+                if len(w) >= 3 and w not in STOP and not w.isdigit():
+                    word_counter[w] += 1
+        themes = [(w, n) for w, n in word_counter.most_common(5) if n >= 3]
+        if len(themes) >= 2:
+            top = ", ".join(f"«{w}»({n})" for w, n in themes[:3])
+            out.append(self._make(
+                text=f"Часті теми у запитах користувача: {top}. "
+                     f"Тримай контекст готовим — ймовірно, скоро буде продовження.",
+                scope=SCOPE_USER_TRAIT,
+                confidence=0.65,
+                evidence=[],
+                meta={"trait": "themes", "top": [w for w, _ in themes[:5]]},
+            ))
+
+        # ---- 4) Поточний емоційний фон (з Affect) -------------------
+        try:
+            from core.affect import get_affect
+            st = get_affect().state()
+            if st.samples >= 8:
+                if st.stress >= 0.5:
+                    out.append(self._make(
+                        text=f"Останнім часом користувач під стресом "
+                             f"(stress={st.stress:.2f}) — уникай нав'язливих "
+                             f"пропозицій, говори м'якше і коротше.",
+                        scope=SCOPE_USER_TRAIT,
+                        confidence=min(0.5 + st.stress * 0.4, 0.9),
+                        evidence=[],
+                        meta={"trait": "baseline_stress", "stress": round(st.stress, 2)},
+                    ))
+                elif st.valence >= 0.4:
+                    out.append(self._make(
+                        text=f"Користувач у позитивному настрої "
+                             f"(valence=+{st.valence:.2f}) — добрий момент для "
+                             f"навчання нових скілів чи планування великих цілей.",
+                        scope=SCOPE_USER_TRAIT,
+                        confidence=0.7,
+                        evidence=[],
+                        meta={"trait": "baseline_positive",
+                              "valence": round(st.valence, 2)},
+                    ))
+                elif st.valence <= -0.3:
+                    out.append(self._make(
+                        text=f"Користувач помітно втомлений/незадоволений "
+                             f"(valence={st.valence:+.2f}) — пропонуй маленькі кроки, "
+                             f"не великі плани; підтверджуй частіше.",
+                        scope=SCOPE_USER_TRAIT,
+                        confidence=0.7,
+                        evidence=[],
+                        meta={"trait": "baseline_low",
+                              "valence": round(st.valence, 2)},
+                    ))
+        except Exception as e:
+            logger.debug(f"[Reflector] affect baseline skip: {e}")
+
         return out
 
     def _llm_reflect(self, episodes, goals, stages) -> List[Lesson]:

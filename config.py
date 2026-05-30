@@ -31,6 +31,16 @@ VOICE_MODEL  = "uk-UA-OstapNeural"
 VOICE_RATE   = "+30%"
 WAKE_WORDS   = ["hey_jarvis"]
 
+# ----- Ім'я асистента -----
+# Відображуване ім'я, яким асистент репрезентує себе в промптах,
+# логах і TTS-виводі. Для зміни wake-word моделі openWakeWord
+# потрібна окрема навчена модель (OWW_MODEL_NAME).
+ASSISTANT_NAME       = os.getenv("ASSISTANT_NAME", "Нео")
+# Список форм імені для Whisper-fallback розпізнавання та різання
+# ведучих wake-слів з команди. "jarvis"/"джарвіс" лишено для
+# зворотньої сумісності з чинною OWW-моделлю "hey_jarvis_v0.1".
+ASSISTANT_NAME_FORMS = ["нео", "neo", "джарвіс", "джарвис", "jarvis"]
+
 # ----- Параметри слухання голосових команд -----
 # Усі значення в секундах. Можна перевизначити через .env.
 # LISTEN_TIMEOUT          — скільки чекати ПОЧАТКУ мовлення після "Слухаю".
@@ -75,7 +85,7 @@ APPS_MAP = {
 # ==========================================
 AI_PROMPTS = {
     "стандартний": (
-        "Ти Джарвіс, штучний інтелект та особистий помічник. "+
+        f"Ти {ASSISTANT_NAME}, штучний інтелект та особистий помічник. "
         "Відповідай українською, чітко, структуровано та по суті."
     ),
     "програміст": (
@@ -274,13 +284,13 @@ ANTICIPATOR_TIME_MIN_REPEATS = int(os.getenv("ANTICIPATOR_TIME_MIN_REPEATS", "3"
 STOP_WORDS_YOUTUBE_PLAY = [
     "увімкни", "вруби", "запусти пісню", "запусти відео",
     "грай", "включи", "на ютубі", "на youtube",
-    "в ютубі", "в youtube", "джарвіс",
+    "в ютубі", "в youtube", "джарвіс", "нео",
 ]
 
 STOP_WORDS_YOUTUBE_SEARCH = [
     "знайди", "пошук", "що є на ютубі про",
     "на ютубі", "на youtube", "в ютубі", "в youtube",
-    "в ютуб", "ютуб", "youtube", "відео", "про", "джарвіс",
+    "в ютуб", "ютуб", "youtube", "відео", "про", "джарвіс", "нео",
 ]
 
 STOP_WORDS_LEARN_SKILL = ["створи навичку", "навчись", "напиши нову функцію", "щоб ти", "для"]
@@ -317,3 +327,28 @@ OWW_VAD_THRESHOLD      = float(os.getenv("OWW_VAD_THRESHOLD", "0.5"))   # Silero
 OWW_WAKE_THRESHOLD     = float(os.getenv("OWW_WAKE_THRESHOLD", "0.5"))  # поріг спрацювання wake word
 OWW_DEBOUNCE_TIME      = float(os.getenv("OWW_DEBOUNCE_TIME", "2.0"))   # секунди між спрацюваннями
 OWW_FALLBACK_TO_WHISPER = os.getenv("OWW_FALLBACK_TO_WHISPER", "true").lower() == "true"  # fallback на Whisper якщо OWW недоступний
+
+# ==========================================
+# 11. FUZZY-МАТЧ КОМАНД (STT-стійкість)
+# ==========================================
+# Однослівні тригери базовий роутер матчить лише точно, тож дрібні
+# STT-помилки («погода»→«пагода», «тихіше»→«тихише») зривають маршрут і
+# команда падає в LLM-чат. Цей блок вмикає fuzzy-фолбек САМЕ для однослівних
+# тригерів (багатослівні вже мають власний fuzzy у command_router).
+# Свідомо консервативно, щоб не плодити хибних спрацювань:
+FUZZY_WORD_THRESHOLD     = float(os.getenv("FUZZY_WORD_THRESHOLD", "82"))    # 0..100; нижче = толерантніше
+FUZZY_WORD_MIN_LEN       = int(os.getenv("FUZZY_WORD_MIN_LEN", "5"))         # короткі ризиковані слова (стоп/курс/диск) лишаємо точними
+FUZZY_WORD_MAX_CMD_WORDS = int(os.getenv("FUZZY_WORD_MAX_CMD_WORDS", "4"))   # fuzzy лише для коротких команд
+FUZZY_WORD_LONG_LEN      = int(os.getenv("FUZZY_WORD_LONG_LEN", "8"))      # дуже характерні тригери (>=8) fuzzy-матчаться навіть у довгих командах
+
+# ASR bias prompt — підштовхує Whisper до доменного словника команд (core/asr_bias.py)
+ASR_BIAS_ENABLED         = os.getenv("ASR_BIAS_ENABLED", "1") in ("1", "true", "True")
+
+# ==========================================
+# 12. VOICE LOG (Фаза 6 — замкнений цикл навчання)
+# ==========================================
+# Журнал живих голосових команд (аудіо + розпізнаний текст) для періодичного
+# перегляду помилок і доливання виправлених кліпів у train.tsv.
+VOICE_LOG_ENABLED = os.getenv("VOICE_LOG_ENABLED", "1") in ("1", "true", "True")
+VOICE_LOG_DIR     = os.getenv("VOICE_LOG_DIR", "voice_logs")
+VOICE_LOG_MAX     = int(os.getenv("VOICE_LOG_MAX", "1000"))   # макс. wav-файлів (0 = без ліміту)

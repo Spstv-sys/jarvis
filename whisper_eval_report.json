@@ -1,0 +1,33 @@
+{
+  "manifest": "D:\\Projects\\Jv3\\jarvis_project\\my-dataset\\test.tsv",
+  "optimistic": false,
+  "summary": [
+    {
+      "model": "lora",
+      "samples": 29,
+      "WER": 0.0575,
+      "CER": 0.0089,
+      "EXACT": 0.8621,
+      "ROUTE": 1.0,
+      "sec_per_sample": 0.56
+    },
+    {
+      "model": "turbo",
+      "samples": 29,
+      "WER": 0.3333,
+      "CER": 0.0997,
+      "EXACT": 0.4828,
+      "ROUTE": 0.8276,
+      "sec_per_sample": 0.45
+    },
+    {
+      "model": "base",
+      "samples": 29,
+      "WER": 0.4167,
+      "CER": 0.0919,
+      "EXACT": 0.2759,
+      "ROUTE": 0.8276,
+      "sec_per_sample": 0.348
+    }
+  ]
+}

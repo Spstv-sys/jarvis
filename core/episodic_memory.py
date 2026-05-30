@@ -83,17 +83,40 @@ class EpisodicMemory:
         self._lock = threading.RLock()
         self._embedder = embedder           # будь-який об'єкт із .embed_query(str)->List[float]
         self._embed_dim: Optional[int] = None
+        # Одне персистентне з'єднання на весь процес; раніше відкривали нове
+        # при кожному log()/search() — це десятки ms відкриття + WAL replay
+        # на кожну команду.
+        self._conn_inst = sqlite3.connect(
+            self._db_path, timeout=10, check_same_thread=False
+        )
+        try:
+            self._conn_inst.execute("PRAGMA journal_mode=WAL;")
+            self._conn_inst.execute("PRAGMA synchronous=NORMAL;")
+        except sqlite3.Error as e:
+            logger.warning(f"[EpisodicMemory] PRAGMA failed: {e}")
         self._init_db()
+        import atexit
+        atexit.register(self.close)
 
     # ------------------------------------------------------------------
     def _conn(self) -> sqlite3.Connection:
-        c = sqlite3.connect(self._db_path, timeout=10, check_same_thread=False)
-        c.execute("PRAGMA journal_mode=WAL;")
-        return c
+        return self._conn_inst
+
+    def close(self) -> None:
+        conn = getattr(self, "_conn_inst", None)
+        if conn is None:
+            return
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
+        finally:
+            self._conn_inst = None  # type: ignore[assignment]
 
     def _init_db(self) -> None:
-        with self._lock, self._conn() as c:
-            c.executescript(self._SCHEMA)
+        with self._lock:
+            self._conn_inst.executescript(self._SCHEMA)
+            self._conn_inst.commit()
 
     def attach_embedder(self, embedder: Any) -> None:
         """Прикріпити embedder після того, як memory_rag прогрів модель."""
@@ -136,22 +159,30 @@ class EpisodicMemory:
         kind: str,
         text: str,
         *,
-        actor: str = "jarvis",
+        actor: Optional[str] = None,
         tags: Optional[Iterable[str]] = None,
         meta: Optional[dict] = None,
     ) -> int:
         if not text:
             return -1
+        if actor is None:
+            try:
+                import config as _cfg
+                actor = getattr(_cfg, "ASSISTANT_NAME", "Нео").lower()
+            except Exception:
+                actor = "assistant"
         ts = int(time.time())
         tag_str = ",".join(t.strip() for t in (tags or []) if t and t.strip())
         meta_str = json.dumps(meta or {}, ensure_ascii=False)
         emb = self._embed(text)
-        with self._lock, self._conn() as c:
+        with self._lock:
+            c = self._conn_inst
             cur = c.execute(
                 "INSERT INTO events (ts, kind, actor, text, tags, meta_json, embedding) "
                 "VALUES (?,?,?,?,?,?,?)",
                 (ts, kind, actor, text[:4000], tag_str, meta_str, emb),
             )
+            c.commit()
             event_id = int(cur.lastrowid)
         try:
             from core.thought_log import think, STAGE_EPISODIC
@@ -184,8 +215,8 @@ class EpisodicMemory:
             where.append("ts <= ?"); params.append(int(until))
         where_sql = ("WHERE " + " AND ".join(where)) if where else ""
 
-        with self._lock, self._conn() as c:
-            rows = c.execute(
+        with self._lock:
+            rows = self._conn_inst.execute(
                 f"SELECT id,ts,kind,actor,text,tags,meta_json,embedding FROM events {where_sql}",
                 params,
             ).fetchall()
@@ -243,8 +274,8 @@ class EpisodicMemory:
         if since is not None:
             where.append("ts >= ?"); params.append(int(since))
         where_sql = ("WHERE " + " AND ".join(where)) if where else ""
-        with self._lock, self._conn() as c:
-            rows = c.execute(
+        with self._lock:
+            rows = self._conn_inst.execute(
                 f"SELECT id,ts,kind,actor,text,tags,meta_json,embedding "
                 f"FROM events {where_sql} ORDER BY ts DESC LIMIT ?",
                 params + [int(n)],
@@ -254,12 +285,15 @@ class EpisodicMemory:
     # ------------------------------------------------------------------
     def delete_older_than(self, days: int) -> int:
         cutoff = int(time.time()) - days * 86400
-        with self._lock, self._conn() as c:
+        with self._lock:
+            c = self._conn_inst
             cur = c.execute("DELETE FROM events WHERE ts < ?", (cutoff,))
+            c.commit()
             return cur.rowcount or 0
 
     def stats(self) -> dict:
-        with self._lock, self._conn() as c:
+        with self._lock:
+            c = self._conn_inst
             total = c.execute("SELECT COUNT(*) FROM events").fetchone()[0]
             with_emb = c.execute("SELECT COUNT(*) FROM events WHERE embedding IS NOT NULL").fetchone()[0]
             kinds = c.execute(

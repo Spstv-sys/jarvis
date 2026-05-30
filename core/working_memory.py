@@ -13,15 +13,20 @@
 
 Опис інтегрується з config.WORKING_MEMORY_* налаштуваннями (опційно).
 Все потокобезпечне через RLock.
+
+Серіалізація: `dump()` повертає JSON-сумісний dict зі станом, `load()`
+відновлює його. Використовується JarvisUltimate для збереження топ-сутностей
+та активної теми між рестартами (через settings-таблицю БД).
 """
 from __future__ import annotations
 
 import re
+import json
 import time
 import threading
 import logging
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from typing import Deque, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -89,7 +94,7 @@ def _guess_gender(name: str) -> str:
 # не на початку речення, не зі стоп-словника).
 # ---------------------------------------------------------------------------
 _STOPWORDS_CAP = {
-    "Джарвіс", "Я", "Ти", "Ми", "Ви", "Вони", "Він", "Вона", "Воно",
+    "Джарвіс", "Нео", "Neo", "Jarvis", "Я", "Ти", "Ми", "Ви", "Вони", "Він", "Вона", "Воно",
     "Так", "Ні", "Будь", "Бо", "Але", "Якщо", "Коли", "Де", "Що", "Хто",
     "Україна", "Україні", "Україну",  # надто часті — ігноруємо як активну
     # Поширені українські імперативи (частий початок голосових команд):
@@ -300,6 +305,118 @@ class WorkingMemory:
                 "last_skill": self.last_skill,
                 "pending_goals": sum(1 for g in self.pending_goals if not g.done),
             }
+
+    # ----------------------------------------------- персистенція
+    # Стан WM зазвичай ефемерний, але мінімальний "залишок" (топ-сутності,
+    # активна тема, незавершені цілі) корисно перенести через рестарт —
+    # щоб Нео не починав щоразу з повного нуля.
+
+    SNAPSHOT_VERSION = 1
+    SNAPSHOT_MAX_TURNS = 6
+    SNAPSHOT_MAX_ENTITIES = 10
+    SNAPSHOT_MAX_AGE_SEC = 24 * 3600  # >24h — вважаємо несвіжим
+
+    def dump(self) -> dict:
+        """Повертає JSON-сумісний знімок стану для збереження."""
+        with self._lock:
+            self._evict_stale()
+            top_entities = sorted(
+                self.entities.values(),
+                key=lambda e: (e.mentions, e.last_seen),
+                reverse=True,
+            )[: self.SNAPSHOT_MAX_ENTITIES]
+            return {
+                "version": self.SNAPSHOT_VERSION,
+                "saved_at": time.time(),
+                "active_topic": self.active_topic,
+                "topic_set_at": self.topic_set_at,
+                "last_skill": self.last_skill,
+                "last_action_result": self.last_action_result,
+                "turns": [asdict(t) for t in list(self.turns)[-self.SNAPSHOT_MAX_TURNS:]],
+                "entities": [asdict(e) for e in top_entities],
+                "pending_goals": [
+                    asdict(g) for g in self.pending_goals if not g.done
+                ][:5],
+            }
+
+    def load(self, snapshot: dict) -> bool:
+        """Відновлює стан зі знімка. Повертає True якщо завантажено."""
+        if not isinstance(snapshot, dict):
+            return False
+        if snapshot.get("version") != self.SNAPSHOT_VERSION:
+            logger.info("[WM] snapshot version mismatch — пропуск")
+            return False
+        saved_at = float(snapshot.get("saved_at") or 0)
+        if saved_at and (time.time() - saved_at) > self.SNAPSHOT_MAX_AGE_SEC:
+            logger.info("[WM] snapshot застарілий (>24h) — пропуск")
+            return False
+        try:
+            with self._lock:
+                self.active_topic = snapshot.get("active_topic")
+                self.topic_set_at = float(snapshot.get("topic_set_at") or 0)
+                self.last_skill = snapshot.get("last_skill")
+                self.last_action_result = snapshot.get("last_action_result")
+                # Turns: відновлюємо лише поля, які є в Turn dataclass.
+                self.turns.clear()
+                for td in snapshot.get("turns") or []:
+                    try:
+                        self.turns.append(Turn(
+                            role=td.get("role", "user"),
+                            text=td.get("text", ""),
+                            ts=float(td.get("ts") or time.time()),
+                            intent=td.get("intent"),
+                            skill=td.get("skill"),
+                            entities=list(td.get("entities") or []),
+                        ))
+                    except Exception:
+                        continue
+                self.entities.clear()
+                for ed in snapshot.get("entities") or []:
+                    try:
+                        name = ed.get("name") or ""
+                        if not name:
+                            continue
+                        self.entities[name.lower().strip()] = Entity(
+                            name=name,
+                            kind=ed.get("kind", "misc"),
+                            last_seen=float(ed.get("last_seen") or time.time()),
+                            mentions=int(ed.get("mentions") or 1),
+                            source=ed.get("source"),
+                        )
+                    except Exception:
+                        continue
+                self.pending_goals = []
+                for gd in snapshot.get("pending_goals") or []:
+                    try:
+                        self.pending_goals.append(Goal(
+                            description=gd.get("description", ""),
+                            created=float(gd.get("created") or time.time()),
+                            deadline=gd.get("deadline"),
+                            done=bool(gd.get("done", False)),
+                        ))
+                    except Exception:
+                        continue
+            logger.info(
+                "[WM] snapshot завантажено: %d turns, %d entities, topic=%r",
+                len(self.turns), len(self.entities), self.active_topic,
+            )
+            return True
+        except Exception as e:
+            logger.warning(f"[WM] не вдалося застосувати snapshot: {e}")
+            return False
+
+    def to_json(self) -> str:
+        return json.dumps(self.dump(), ensure_ascii=False)
+
+    def from_json(self, raw: str) -> bool:
+        if not raw:
+            return False
+        try:
+            data = json.loads(raw)
+        except Exception as e:
+            logger.warning(f"[WM] невалідний JSON snapshot: {e}")
+            return False
+        return self.load(data)
 
     # ----------------------------------------------- внутрішнє
     def _touch_entity(self, name: str, kind: str = "misc", source: Optional[str] = None) -> None:

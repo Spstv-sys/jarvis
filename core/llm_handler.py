@@ -75,6 +75,7 @@ class LLMHandler:
         self.brain = brain
         self.audio = audio
         self.working_memory = working_memory  # core.working_memory.WorkingMemory | None
+        self.user_profile = None  # core.user_profile.UserProfile | None — встановлюється з main
 
         self.personality_mode  = "стандартний"
         self.active_provider   = "deepseek"
@@ -96,14 +97,14 @@ class LLMHandler:
             self._providers["deepseek"] = DeepSeekProvider(api_key=deepseek_key)
             logger.info("DeepSeek підключено.")
         else:
-            logger.error("Не знайдено DEEPSEEK_API_KEY")
+            logger.info("DEEPSEEK_API_KEY не задано — DeepSeek-провайдер пропущено.")
 
         gemini_key = os.getenv("GEMINI_API_KEY")
         if gemini_key:
             self._providers["gemini"] = GeminiProvider(api_key=gemini_key)
             logger.info("Gemini підключено.")
         else:
-            logger.error("Не знайдено GEMINI_API_KEY")
+            logger.info("GEMINI_API_KEY не задано — Gemini-провайдер пропущено.")
 
         openai_key = os.getenv("OPENAI_API_KEY")
         if openai_key:
@@ -301,9 +302,13 @@ class LLMHandler:
             ans = self._call_provider(prompt)
             if ans is None:
                 return None
-            if not is_system_call:
-                self.short_term_memory.append(f"AI: {ans}")
+            if is_system_call:
+                # Детермінований системний промпт (skill-builder, NLU, code-checker,
+                # planner, ...) — його результат можна безпечно кешувати.
+                # Розмовні промпти НЕ кешуються тут (вони унікальні через WM/RAG/час).
                 self._set_cached(prompt, ans)
+            else:
+                self.short_term_memory.append(f"AI: {ans}")
             return ans
         except Exception as e:
             logger.error(f"Помилка генерації [{self.active_provider}]: {e}")
@@ -456,8 +461,28 @@ class LLMHandler:
             if wm_dialog else ""
         )
 
+        profile_section = ""
+        if self.user_profile is not None:
+            try:
+                pb = self.user_profile.as_prompt_block()
+                if pb:
+                    profile_section = f"ПРОФІЛЬ КОРИСТУВАЧА: {pb}\n\n"
+            except Exception as e:
+                logger.debug(f"[UserProfile] prompt block помилка: {e}")
+
+        affect_section = ""
+        try:
+            from core.affect import get_affect
+            ab = get_affect().as_prompt_block()
+            if ab:
+                affect_section = f"АФЕКТ: {ab}\n\n"
+        except Exception as e:
+            logger.debug(f"[Affect] prompt block помилка: {e}")
+
         full_prompt = (
             f"Системна роль: {role_prompt}\n\n"
+            f"{profile_section}"
+            f"{affect_section}"
             f"{wm_section}"
             f"КОНТЕКСТ З ПАМ'ЯТІ:\n\"\"\"{knowledge_context}\"\"\"\n\n"
             f"КОНТАКТИ: {matched_contacts}\n"
@@ -492,9 +517,10 @@ class LLMHandler:
 
     def _save_to_memory(self, user_text: str, ans: str) -> None:
         try:
+            assistant_name = getattr(config, "ASSISTANT_NAME", "Нео")
             memory_block = (
                 f"Користувач спитав: {user_text}. "
-                f"Джарвіс відповів: {ans}"
+                f"{assistant_name} відповів: {ans}"
             )
             self.brain.memorize(memory_block, source="auto_dialogue")
         except Exception as e:

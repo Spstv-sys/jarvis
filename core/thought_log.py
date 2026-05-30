@@ -32,6 +32,7 @@ STAGE_CRITIC   = "critic"
 STAGE_REPLAN   = "replan"
 STAGE_EPISODIC = "episodic"
 STAGE_WM       = "wm"
+STAGE_AFFECT   = "affect"
 STAGE_ERROR    = "error"
 STAGE_INFO     = "info"
 

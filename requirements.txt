@@ -5,6 +5,7 @@ langchain-chroma
 langchain-huggingface
 langchain-text-splitters
 sentence-transformers
+sentencepiece  # SentencePiece-токенайзери (XLM-R sentiment, Whisper) — без нього fallback на TikToken
 
 # --- ШІ Провайдери ---
 google-genai

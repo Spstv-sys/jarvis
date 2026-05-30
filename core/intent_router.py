@@ -134,6 +134,24 @@ class IntentRouter:
             logger.warning(f"[IntentRouter] cache_get fail: {e}")
             return None
 
+    def clear_cache(self) -> int:
+        """Скинути кеш intent'ів. Викликати після зміни набору скілів /
+        тригерів — інакше старі рішення «прилипають» на 30 днів TTL.
+
+        Повертає кількість видалених рядків (0 якщо БД недоступна)."""
+        if not self._conn:
+            return 0
+        try:
+            with self._lock:
+                cur = self._conn.execute("DELETE FROM intent_cache")
+                self._conn.commit()
+                deleted = cur.rowcount or 0
+            logger.info(f"[IntentRouter] cache cleared ({deleted} entries).")
+            return deleted
+        except Exception as e:
+            logger.warning(f"[IntentRouter] clear_cache fail: {e}")
+            return 0
+
     def _cache_put(self, cmd: str, intent: Intent) -> None:
         if not self._conn:
             return

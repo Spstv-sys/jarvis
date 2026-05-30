@@ -21,7 +21,7 @@ import sounddevice as sd
 from scipy.io.wavfile import write
 
 SAMPLE_RATE = 16000
-AUDIO_DIR = "my-dataset/audio"
+AUDIO_DIR = "my-dataset/audio1"
 TSV_PATH = "my-dataset/train.tsv"
 
 

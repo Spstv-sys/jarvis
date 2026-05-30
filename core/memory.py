@@ -1,9 +1,15 @@
+import atexit
 import sqlite3
 import logging
 import threading
 import re
 
 logger = logging.getLogger(__name__)
+
+# SQL statements that need an explicit commit. Avoids gratuitous commits
+# on hot read paths (get_setting / get_tasks / search_facts).
+_WRITE_PREFIXES = ("INSERT", "UPDATE", "DELETE", "REPLACE",
+                   "CREATE", "DROP", "ALTER", "PRAGMA")
 
 # ─────────────────────────────────────────────
 # РЕЛЯЦІЙНА БД (SQLite)
@@ -14,23 +20,38 @@ class JarvisDatabase:
     def __init__(self, db_path="jarvis_core.db"):
         self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=10.0)
         self.conn.row_factory = sqlite3.Row  # ✅ Зручний доступ до колонок
-        self._lock = threading.Lock()        # legacy (тримаємо для DDL)
-        # WAL дозволяє паралельні читання + одне записування без зовнішнього lock
+        # ВАЖЛИВО: ``check_same_thread=False`` ЗНІМАЄ перевірку sqlite3, але
+        # НЕ робить один Connection потокобезпечним. Усі звертання до
+        # ``self.conn`` мають бути серіалізовані цим локом — інакше можлива
+        # корупція стану курсора при одночасних викликах з BrainPool worker'ів.
+        self._lock = threading.Lock()
+        # WAL дозволяє паралельні читання + одне записування на рівні файла БД.
         try:
             self.conn.execute("PRAGMA journal_mode=WAL;")
             self.conn.execute("PRAGMA synchronous=NORMAL;")
         except sqlite3.Error as e:
             logger.warning(f"SQLite PRAGMA failed: {e}")
         self._create_tables()
+        # atexit замість __del__: __del__ може спрацювати під час teardown
+        # інтерпретатора, коли модуль sqlite3 уже частково вивантажений,
+        # що породжує винятки в логах при виході.
+        atexit.register(self.close)
 
     def _execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
-        """Централізований execute. SQLite з check_same_thread=False + WAL
-        обробляє конкурентний доступ внутрішньо — зовнішній lock не потрібен
-        для звичайних read/write запитів і лише сповільнює hot-path."""
-        cur = self.conn.cursor()
-        cur.execute(sql, params)
-        self.conn.commit()
-        return cur
+        """Централізований execute з потокобезпечним блокуванням.
+
+        Один ``sqlite3.Connection`` НЕ потокобезпечний навіть з
+        ``check_same_thread=False``; зовнішній лок обовʼязковий.
+        Commit виконується лише для write-запитів — економимо системні
+        виклики на гарячих read-шляхах (get_setting / get_tasks / ...).
+        """
+        is_write = sql.lstrip().upper().startswith(_WRITE_PREFIXES)
+        with self._lock:
+            cur = self.conn.cursor()
+            cur.execute(sql, params)
+            if is_write:
+                self.conn.commit()
+            return cur
 
     def _create_tables(self) -> None:
         with self._lock:
@@ -210,12 +231,14 @@ class JarvisDatabase:
 
     # --- Cleanup ---
     def close(self) -> None:
-        """✅ Явне закриття з'єднання"""
+        """Явне закриття з'єднання. Ідемпотентне — безпечно викликати двічі."""
+        conn = getattr(self, "conn", None)
+        if conn is None:
+            return
         try:
-            self.conn.close()
+            conn.close()
             logger.info("SQLite з'єднання закрито.")
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error(f"Помилка закриття SQLite: {e}")
-
-    def __del__(self) -> None:
-        self.close()
+        finally:
+            self.conn = None  # type: ignore[assignment]

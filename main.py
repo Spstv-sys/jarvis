@@ -34,6 +34,7 @@ from core.audio_manager import AudioManager
 from core.llm_handler import LLMHandler
 from core.system_actions import SystemActions
 from core.handlers import CommandHandlers
+from core.file_watcher import DownloadHandler
 
 init(autoreset=True)
 load_dotenv()
@@ -53,40 +54,6 @@ logging.getLogger().handlers = [_log_handler]   # replace with rotating handler
 logger = logging.getLogger(__name__)
 
 
-class DownloadHandler(FileSystemEventHandler):
-    EXT_MAP = {
-        'Documents': ['.pdf', '.docx', '.txt', '.xlsx', '.pptx'],
-        'Images':    ['.jpg', '.jpeg', '.png', '.svg'],
-        'Code':      ['.py', '.kt', '.js', '.go', '.json', '.cpp', '.html', '.css'],
-        'Archives':  ['.zip', '.rar', '.7z'],
-        'Torrents':  ['.torrent'],
-        'Programs':  ['.exe', '.msi'],
-    }
-
-    def __init__(self):
-        super().__init__()
-        self.target_drive = config.SORTING_DRIVE
-
-    def on_created(self, event):
-        if event.is_directory:
-            return
-        file_path = event.src_path
-        filename  = os.path.basename(file_path)
-        file_ext  = os.path.splitext(filename)[1].lower()
-
-        for folder, extensions in self.EXT_MAP.items():
-            if file_ext in extensions:
-                dest_dir = os.path.join(self.target_drive, folder)
-                os.makedirs(dest_dir, exist_ok=True)
-                time.sleep(2)
-                try:
-                    shutil.move(file_path, os.path.join(dest_dir, filename))
-                    logger.info(f"Файл {filename} відсортовано у {dest_dir}")
-                except Exception as e:
-                    logger.error(f"Помилка сортування файлу {filename}: {e}")
-                break
-
-
 class JarvisUltimate:
 
     def __init__(self):
@@ -97,34 +64,13 @@ class JarvisUltimate:
         self.is_running      = True
         self.ui_callback     = None
 
-        # Parallelise heavy I/O initialisation (SQLite, ChromaDB, embeddings,
-        # network sessions). Each component is independent, so this saves 3-5s
-        # of startup time vs. sequential init.
-        init_results: dict = {}
-        init_errors:  dict = {}
-
-        def _safe_init(name, factory):
-            try:
-                init_results[name] = factory()
-            except Exception as exc:
-                init_errors[name] = exc
-                logger.error(f"Init '{name}' failed: {exc}")
-
-        init_threads = [
-            threading.Thread(target=_safe_init, args=("db", JarvisDatabase), daemon=True),
-            threading.Thread(target=_safe_init, args=("brain", lambda: JarvisSmartMemory(docs_dir="knowledge_base")), daemon=True),
-            threading.Thread(target=_safe_init, args=("scraper", JarvisScraper), daemon=True),
-            threading.Thread(target=_safe_init, args=("youtube", JarvisYouTube), daemon=True),
-        ]
-        for t in init_threads:
-            t.start()
-        for t in init_threads:
-            t.join(timeout=30)
-
-        self.db      = init_results.get("db")      or JarvisDatabase()
-        self.brain   = init_results.get("brain")   or JarvisSmartMemory(docs_dir="knowledge_base")
-        self.scraper = init_results.get("scraper") or JarvisScraper()
-        self.youtube = init_results.get("youtube") or JarvisYouTube()
+        # Паралельна ініціалізація важких підсистем — делеговано у core/bootstrap.
+        from core.bootstrap import init_core_subsystems
+        _subsystems = init_core_subsystems(timeout=30)
+        self.db      = _subsystems["db"]
+        self.brain   = _subsystems["brain"]
+        self.scraper = _subsystems["scraper"]
+        self.youtube = _subsystems["youtube"]
 
         self.stop_event = threading.Event()
         keyboard.add_hotkey('esc', self.stop_event.set)
@@ -154,7 +100,43 @@ class JarvisUltimate:
         from core.working_memory import get_working_memory
         self.working_memory = get_working_memory()
 
+        # User Profile — стабільне самопредставлення «господаря» (ім'я,
+        # форма звертання, мова, інтереси). Підмішується у системний промпт.
+        try:
+            from core.user_profile import get_user_profile
+            self.user_profile = get_user_profile(self.db)
+            logger.info(f"✅ UserProfile завантажено: {self.user_profile.all()}")
+        except Exception as e:
+            logger.error(f"UserProfile init failed: {e}")
+            self.user_profile = None
+
+        # Affect NLP scorer — підмінити лексикон на справжню sentiment-модель.
+        # Завантажується у фоні; до готовності працює лексикон як fallback.
+        # Вимикається через AFFECT_NLP=0.
+        try:
+            from core.affect_nlp import enable_nlp_scorer
+            if enable_nlp_scorer():
+                logger.info("✅ Affect NLP scorer активовано (фоновe завантаження).")
+        except Exception as e:
+            logger.debug(f"Affect NLP init skipped: {e}")
+
+        # Відновлюємо знімок WorkingMemory з settings — щоб після рестарту
+        # Нео пам'ятав топ-сутності й активну тему попередньої сесії.
+        try:
+            snap_raw = self.db.get_setting("working_memory_snapshot_v1")
+            if isinstance(snap_raw, str) and snap_raw:
+                if self.working_memory.from_json(snap_raw):
+                    logger.info("✅ WorkingMemory snapshot відновлено")
+        except Exception as e:
+            logger.warning(f"WM snapshot restore failed: {e}")
+
         self.llm         = LLMHandler(self.db, self.brain, self.audio, working_memory=self.working_memory)
+        # Передаємо UserProfile у LLM, якщо handler його підтримує.
+        if self.user_profile is not None:
+            try:
+                self.llm.user_profile = self.user_profile
+            except Exception:
+                pass
         self.sys_actions = SystemActions(self.audio, self.db)
 
         self.handlers = CommandHandlers(self)
@@ -203,6 +185,31 @@ class JarvisUltimate:
         self.start_hardware_monitor()
         self.start_library_watcher()
 
+        # Гарантовано зберігаємо знімок WorkingMemory перед завершенням,
+        # навіть якщо процес впаде через _force_shutdown / SIGTERM.
+        try:
+            import atexit
+            atexit.register(self._persist_working_memory)
+        except Exception:
+            pass
+
+    def _persist_working_memory(self) -> None:
+        """Скидає поточний стан WorkingMemory у settings-таблицю.
+
+        Викликається з atexit та з _force_shutdown. Тихо ковтає помилки,
+        бо це best-effort на shutdown — БД може вже закриватися.
+        """
+        try:
+            wm = getattr(self, "working_memory", None)
+            db = getattr(self, "db", None)
+            if wm is None or db is None:
+                return
+            snap = wm.to_json()
+            db.set_setting("working_memory_snapshot_v1", snap)
+            logger.info("[WM] snapshot збережено")
+        except Exception as e:
+            logger.debug(f"[WM] persist на shutdown пропущено: {e}")
+
     # ------------------------------------------------------------------
     # SPEECH QUEUE
     # ------------------------------------------------------------------
@@ -210,7 +217,7 @@ class JarvisUltimate:
         if not text:
             return
         if self.ui_callback:
-            self.ui_callback("Джарвіс", text)
+            self.ui_callback(getattr(config, "ASSISTANT_NAME", "Нео"), text)
         self.output_queue.put(text)
 
     def _clear_output_queue(self) -> None:
@@ -283,70 +290,19 @@ class JarvisUltimate:
     # PROCESSING LOOP  (Problem 2: single implementation, used by run/server/hub)
     # ------------------------------------------------------------------
     def _request_cancel(self) -> None:
-        """Signal cooperative cancellation to all running BrainWorkers.
-
-        Long-running skills check :attr:`cancel_event` between stages and
-        terminate early. The flag is auto-cleared by :meth:`_process_command`
-        before each new command.
-        """
-        self.cancel_event.set()
-        logger.info("Cancellation requested — running skills should bail out.")
+        # Делеговано у core/runtime (розвантаження god-file).
+        from core.runtime import request_cancel
+        return request_cancel(self)
 
     def _force_shutdown(self) -> None:
-        """Hard-terminate the whole process after a STOP command.
-
-        ``JarvisUltimate`` зазвичай живе у daemon-потоці (server.py, ui/hub.py),
-        тому вихід з ``start_processing_loop`` сам по собі не закриває
-        uvicorn / Tk mainloop. Ця функція дає короткий час на завершення
-        поточної озвучки, потім форсує вихід процесу через ``os._exit``.
-        """
-        self.is_running = False
-        logger.info("Force shutdown ініційовано після команди STOP.")
-
-        def _kill():
-            # Дочекатись, поки MouthThread доспіває останню репліку.
-            try:
-                deadline = time.time() + 5.0
-                while time.time() < deadline:
-                    pending = getattr(self, "output_queue", None)
-                    if pending is None or pending.empty():
-                        break
-                    time.sleep(0.1)
-            except Exception:
-                pass
-            try:
-                self._brain_pool.shutdown(wait=False, cancel_futures=True)
-            except Exception:
-                pass
-            logging.shutdown()
-            os._exit(0)
-
-        threading.Thread(target=_kill, daemon=True, name="ShutdownThread").start()
+        # Делеговано у core/runtime (розвантаження god-file).
+        from core.runtime import force_shutdown
+        return force_shutdown(self)
 
     def start_processing_loop(self) -> None:
-        """Main command-processing loop.
-
-        Pulls commands from ``input_queue`` and submits each one to a bounded
-        thread pool (:attr:`_brain_pool`). Concurrency is capped by
-        ``config.BRAIN_MAX_WORKERS`` to prevent thread/memory exhaustion under
-        rapid command bursts. Runs until :attr:`is_running` is False.
-        """
-        while self.is_running:
-            try:
-                cmd = self.input_queue.get(timeout=1)
-                if cmd:
-                    self._brain_pool.submit(self._process_command, cmd)
-            except queue.Empty:
-                pass
-            except KeyboardInterrupt:
-                break
-
-        # Drain pool on shutdown (do not wait forever — daemon threads will die
-        # with the process if a worker is stuck on a network call).
-        try:
-            self._brain_pool.shutdown(wait=True, cancel_futures=True)
-        except Exception as exc:
-            logger.error(f"BrainPool shutdown error: {exc}")
+        # Делеговано у core/runtime (розвантаження god-file).
+        from core.runtime import processing_loop
+        return processing_loop(self)
 
     def run(self) -> None:
         self.start_ears()
@@ -367,64 +323,9 @@ class JarvisUltimate:
         sys.exit(0)
 
     def _process_command(self, cmd: str) -> None:
-        # Reset cancellation flag for each new command so a previous cancel
-        # request does not silently abort an unrelated next command.
-        self.cancel_event.clear()
-
-        # Watchdog: log a warning if the command exceeds the configured
-        # timeout. We cannot safely kill a Python thread, but a visible warning
-        # tells the operator that a skill is hung (e.g. LLM provider stalled).
-        timeout = config.BRAIN_COMMAND_TIMEOUT
-        cmd_preview = cmd if len(cmd) <= 80 else cmd[:77] + "..."
-
-        def _watchdog():
-            logger.warning(
-                "BrainWorker watchdog: command %r still running after %.0fs. "
-                "Possible hang in LLM/skill — consider switching provider or "
-                "issuing a stop command.",
-                cmd_preview, timeout,
-            )
-
-        watchdog = threading.Timer(timeout, _watchdog)
-        watchdog.daemon = True
-        watchdog.start()
-
-        status = None
-        err: Exception | None = None
-        try:
-            status = self.execute_command(cmd)
-            if status == "STOP":
-                self.is_running = False
-        except Exception as e:
-            err = e
-            logger.error(f"BrainWorker: необроблена помилка: {e}", exc_info=True)
-            self.audio.speak("Виникла системна помилка.")
-        finally:
-            watchdog.cancel()
-            self.input_queue.task_done()
-            # Episodic Memory: автологування команди користувача.
-            if self.episodic_memory is not None:
-                try:
-                    if err is None:
-                        self.episodic_memory.log(
-                            kind="command", text=cmd, actor="user",
-                            meta={"status": status or "ok"},
-                        )
-                    else:
-                        self.episodic_memory.log(
-                            kind="error", text=cmd, actor="user",
-                            tags=["exception"], meta={"error": str(err)[:300]},
-                        )
-                except Exception as exc:
-                    logger.debug(f"episodic log failed: {exc}")
-
-            # ⛔ STOP: гарантоване завершення процесу.
-            # У режимі server.py / UI hub.py JarvisUltimate працює всередині
-            # daemon-потоку; вихід з start_processing_loop НЕ зупиняє uvicorn
-            # чи Tk mainloop. Тому після STOP ми форсуємо вихід процесу,
-            # давши короткий час на догравання поточної озвучки.
-            if status == "STOP":
-                self._force_shutdown()
+        # Делеговано у core/runtime (розвантаження god-file).
+        from core.runtime import process_command
+        return process_command(self, cmd)
 
     # ------------------------------------------------------------------
     # ROUTING HELPERS
@@ -448,54 +349,21 @@ class JarvisUltimate:
     # SKILLS
     # ------------------------------------------------------------------
     def load_skills(self) -> None:
-        import glob as _glob
-        import importlib.util
-        self.dynamic_skills = []
-        skills_glob = os.path.join(self.skills_dir, "*.py")
-        for file in _glob.glob(skills_glob):
-            module_name = os.path.basename(file)[:-3]
+        # Делеговано у core/skill_loader (розвантаження god-file).
+        from core.skill_loader import load_skills as _load_skills
+        self.dynamic_skills = _load_skills(
+            self.skills_dir,
+            getattr(config, "TRIGGERS", {}),
+        )
+
+        # Інвалідуємо кеш IntentRouter — інакше нові тригери / перейменовані
+        # скіли не врахуються до закінчення 30-денного TTL запису.
+        router = getattr(self, "intent_router", None)
+        if router is not None and hasattr(router, "clear_cache"):
             try:
-                sys.modules.pop(module_name, None)
-                spec   = importlib.util.spec_from_file_location(module_name, file)
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
-                if hasattr(module, 'TRIGGERS') and hasattr(module, 'execute'):
-                    self.dynamic_skills.append({
-                        'triggers': module.TRIGGERS,
-                        'func':     module.execute,
-                        'name':     module_name,
-                    })
-                    logger.info(f"Навичку завантажено: {module_name}")
+                router.clear_cache()
             except Exception as e:
-                logger.error(f"Помилка завантаження навички {module_name}: {e}")
-
-        if self.dynamic_skills:
-            print(f"{Fore.MAGENTA}🧠 Завантажено динамічних навичок: {len(self.dynamic_skills)}")
-            self._warn_on_skill_trigger_collisions()
-
-    def _warn_on_skill_trigger_collisions(self) -> None:
-        """Warn when a dynamic skill trigger collides with a built-in route trigger.
-
-        Dynamic skills are dispatched before built-in routes in
-        :meth:`execute_command`, so an overly broad trigger (e.g. "погода")
-        in a user-generated plugin can silently shadow core functionality.
-        Logging this on load makes the conflict visible.
-        """
-        builtin_triggers: dict[str, str] = {}
-        for route_key, trigger_list in config.TRIGGERS.items():
-            for trig in trigger_list:
-                builtin_triggers[trig.lower()] = route_key
-
-        for skill in self.dynamic_skills:
-            for trig in skill['triggers']:
-                shadowed = builtin_triggers.get(trig.lower())
-                if shadowed:
-                    msg = (
-                        f"Skill '{skill['name']}' trigger {trig!r} shadows "
-                        f"built-in route '{shadowed}'. Built-in command will not run."
-                    )
-                    logger.warning(msg)
-                    print(f"{Fore.YELLOW}⚠ {msg}")
+                logger.warning(f"IntentRouter.clear_cache() не виконано: {e}")
 
     # ------------------------------------------------------------------
     # BACKGROUND MONITORS
@@ -546,98 +414,9 @@ class JarvisUltimate:
         return self.handlers.cmd_ai_chat(cmd)
 
     def execute_command(self, cmd: str) -> str:
-        logger.info(f"Команда: {cmd}")
-
-        # Dynamic skills take priority.
-        # For multi-word triggers we also use fuzzy matching so that minor STT
-        # transcription errors (e.g. "агентські" → "агентскі") still fire.
-        cmd_lower = cmd.lower()
-        for skill in self.dynamic_skills:
-            matched = False
-            for t in skill['triggers']:
-                # 1) fast substring check (handles most cases)
-                if t.lower() in cmd_lower:
-                    matched = True
-                    break
-                # 2) word-boundary regex (handles trailing punctuation etc.)
-                if self._trigger_in_cmd(t, cmd):
-                    matched = True
-                    break
-                # 3) fuzzy fallback for multi-word triggers (handles STT errors)
-                if len(t.split()) >= 2 and self.fuzzy_in_command(cmd, t, threshold=82):
-                    matched = True
-                    break
-            if matched:
-                try:
-                    result = skill['func'](cmd, self)
-                    if result:
-                        self.audio.speak(result)
-                except Exception as e:
-                    logger.error(f"Помилка навички {skill['name']}: {e}")
-                return "CONTINUE"
-
-        ROUTES = [
-            ("update_knowledge", self.handlers.cmd_update_knowledge),
-            ("activate_skill",   self.handlers.cmd_activate_skill),
-            ("learn_skill",      self.handlers.cmd_learn_skill),
-            ("weather_exact",    self.handlers.cmd_scrape_weather),
-            ("weather",          self.handlers.cmd_weather),
-            ("youtube_play",     self.handlers.cmd_play_youtube),
-            ("youtube_search",   self.handlers.cmd_search_youtube),
-            ("news",             self.handlers.cmd_scrape_news),
-            ("finance",          self.handlers.cmd_finance),
-            ("switch_ai",        self.handlers.cmd_switch_ai),
-            ("personality",      self.handlers.cmd_personality),
-            ("check_ai",         self.handlers.cmd_check_ai),
-            ("timer",            self.handlers.cmd_timer),
-            ("hardware",         self.handlers.cmd_hardware_control),
-            ("apps_os",          self.handlers.cmd_apps_and_os),
-            ("vision",           self.handlers.cmd_vision),
-            ("code_assistant",   self.handlers.cmd_code_assistant),
-            ("calendar",         self.handlers.cmd_calendar),
-            ("dictation",        self.handlers.cmd_dictation),
-            # ВАЖЛИВО: system_exit має перевірятися РАНІШЕ за stop_voice,
-            # бо тригер "стоп" зі stop_voice матчить будь-яку фразу зі словом
-            # "стоп" (напр. "нео стоп") і поверне CONTINUE замість завершення.
-            ("system_exit",      self.handlers.cmd_system_exit),
-            ("stop_voice",       self.handlers.cmd_stop_voice),
-            ("memorize",         self.handlers.cmd_memorize),
-            ("web_search",       self.handlers.cmd_web_search),
-            ("find_file",        self.handlers.cmd_find_file),
-        ]
-
-        for key, handler in ROUTES:
-            triggers = config.TRIGGERS.get(key, [])
-            for trigger in sorted(triggers, key=len, reverse=True):
-                if self._trigger_in_cmd(trigger, cmd):
-                    logger.info(f"execute_command: маршрут '{key}' для команди {cmd!r}")
-                    return handler(cmd)
-                # Fuzzy fallback для багатослівних тригерів (STT-помилки).
-                # Вимагаємо щоб і команда була багатослівною — інакше короткі
-                # репліки на кшталт 'стоп' хибно матчать 'стоп система'.
-                if (len(trigger.split()) >= 2
-                        and len(cmd.split()) >= 2
-                        and self.fuzzy_in_command(cmd, trigger, threshold=80)):
-                    logger.info(f"execute_command: fuzzy маршрут '{key}' для команди {cmd!r} (тригер='{trigger}')")
-                    return handler(cmd)
-
-        # ФОЛБЕК: якщо жоден тригер не зматчив и IntentRouter вмикнено —
-        # питаємо LLM, який маршрут обрати. При впевненості → викликаємо відповідний
-        # handler в ROUTES; інакше — розмова.
-        if self.intent_router is not None:
-            try:
-                guess = self.intent_router.classify(cmd)
-                logger.info(f"execute_command: IntentRouter → {guess}")
-                if (guess.name in dict(ROUTES)
-                        and guess.confidence >= getattr(config, "INTENT_ROUTER_MIN_CONF", 0.55)):
-                    handler = dict(ROUTES)[guess.name]
-                    logger.info(f"execute_command: LLM-маршрут '{guess.name}' (conf={guess.confidence:.2f}, src={guess.source})")
-                    return handler(cmd)
-            except Exception as e:
-                logger.warning(f"IntentRouter помилка: {e}")
-
-        logger.info(f"execute_command: маршрут не знайдено, передаю в handle_ai_chat: {cmd!r}")
-        return self.handle_ai_chat(cmd)
+        # Делеговано у core/command_router (розвантаження god-file).
+        from core.command_router import dispatch
+        return dispatch(self, cmd)
 
     # ------------------------------------------------------------------
     # Backward-compatible thin wrappers (kept for external callers / tests)

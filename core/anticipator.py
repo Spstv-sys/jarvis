@@ -86,6 +86,12 @@ def _load_config() -> Dict[str, Any]:
         "battery_low_pct":  int(g("ANTICIPATOR_BATTERY_LOW_PCT", 20)),
         "time_window_min":  int(g("ANTICIPATOR_TIME_WINDOW_MIN", 30)), # збіг ±30 хв із минулим патерном
         "time_min_repeats": int(g("ANTICIPATOR_TIME_MIN_REPEATS", 3)),
+        # Affect-gating — не лізти, коли користувач стресує/злий/втомлений.
+        # URGENT-пропозиції (батарея тощо) завжди проходять.
+        "affect_enabled":      bool(g("ANTICIPATOR_AFFECT_ENABLED", True)),
+        "affect_stress_mute":  float(g("ANTICIPATOR_AFFECT_STRESS_MUTE", 0.6)),
+        "affect_anger_mute":   float(g("ANTICIPATOR_AFFECT_ANGER_MUTE", 0.45)),  # |valence| при високому arousal
+        "affect_tired_demote": float(g("ANTICIPATOR_AFFECT_TIRED_DEMOTE", -0.35)),# valence нижче — пониження priority
     }
 
 
@@ -103,6 +109,10 @@ class Anticipator:
         self._battery_low_pct  = cfg["battery_low_pct"]
         self._time_window_min  = cfg["time_window_min"]
         self._time_min_repeats = cfg["time_min_repeats"]
+        self._affect_enabled      = cfg["affect_enabled"]
+        self._affect_stress_mute  = cfg["affect_stress_mute"]
+        self._affect_anger_mute   = cfg["affect_anger_mute"]
+        self._affect_tired_demote = cfg["affect_tired_demote"]
 
         self._lock      = threading.RLock()
         self._pending: List[Suggestion] = []
@@ -149,8 +159,21 @@ class Anticipator:
             self._purge_expired_locked()
             if not self._pending:
                 return None
-            return sorted(self._pending,
-                          key=lambda x: (-x.priority, -x.confidence, x.ts))[0]
+            ordered = sorted(self._pending,
+                             key=lambda x: (-x.priority, -x.confidence, x.ts))
+        # Афект-гейт: не висовуємо звичайні пропозиції, якщо користувач у стресі.
+        # URGENT (наприклад, низька батарея) завжди має пройти.
+        gate_ok, _shift, reason = self._affect_gate()
+        for s in ordered:
+            if s.priority >= PRIORITY_URGENT or gate_ok:
+                return s
+        if reason:
+            try:
+                from core.thought_log import think
+                think("info", f"proactive muted by affect: {reason}")
+            except Exception:
+                pass
+        return None
 
     # ------------------------------------------------------------------
     def start(self, interval_sec: Optional[int] = None) -> None:
@@ -215,6 +238,9 @@ class Anticipator:
         """Один прохід генерації пропозицій. Повертає НОВІ пропозиції."""
         if not self._enabled:
             return []
+        # Афект-гейт: при сильному стресі чи злості не генеруємо нових
+        # ідей взагалі (крім системних URGENT — їх додаємо нижче в _from_system).
+        gate_ok, prio_shift, reason = self._affect_gate()
         new_sugs: List[Suggestion] = []
         try:
             new_sugs.extend(self._from_routines())
@@ -232,6 +258,24 @@ class Anticipator:
             new_sugs.extend(self._from_system())
         except Exception as e:
             logger.warning(f"[Anticipator] system: {e}")
+
+        # Якщо афект забороняє — лишаємо тільки URGENT, а решту викидаємо.
+        if not gate_ok and new_sugs:
+            kept = [s for s in new_sugs if s.priority >= PRIORITY_URGENT]
+            if len(kept) != len(new_sugs):
+                try:
+                    from core.thought_log import think
+                    think("info",
+                          f"proactive suppressed by affect ({reason}): "
+                          f"{len(new_sugs) - len(kept)} ідей відкинуто")
+                except Exception:
+                    pass
+            new_sugs = kept
+        # Понижуємо пріоритет пропозицій, якщо користувач втомлений (але не URGENT).
+        if prio_shift < 0:
+            for s in new_sugs:
+                if s.priority > PRIORITY_LOW and s.priority < PRIORITY_URGENT:
+                    s.priority = max(PRIORITY_LOW, s.priority + prio_shift)
 
         # Cooldown + dedup + max_pending.
         accepted_new: List[Suggestion] = []
@@ -334,6 +378,37 @@ class Anticipator:
         if dk:
             return f"{s.source}:{dk}"
         return f"{s.source}:{(s.command or s.text)[:80].lower()}"
+
+    def _affect_gate(self) -> tuple:
+        """Перевірити, чи доречно зараз чіпати користувача.
+
+        Повертає кортеж (allowed, priority_shift, reason):
+          allowed         — bool: чи можна показувати/генерувати звичайні
+                            пропозиції (URGENT проходять завжди);
+          priority_shift  — int: -1, якщо користувач втомлений (понизити);
+          reason          — str: коротке пояснення для ThoughtLog (порожнє,
+                            якщо все ок).
+        """
+        if not self._affect_enabled:
+            return True, 0, ""
+        try:
+            from core.affect import get_affect
+            st = get_affect().state()
+        except Exception:
+            return True, 0, ""
+        if st.samples == 0:
+            return True, 0, ""
+        # Стрес: ріжемо все, крім URGENT.
+        if st.stress >= self._affect_stress_mute:
+            return False, 0, f"stress={st.stress:.2f}"
+        # Гнів: високий arousal + сильно негативний valence.
+        if (st.arousal >= 0.5
+                and st.valence <= -abs(self._affect_anger_mute)):
+            return False, 0, f"anger v={st.valence:+.2f} a={st.arousal:.2f}"
+        # Втома: понизити пріоритет, але не блокувати.
+        if st.valence <= self._affect_tired_demote:
+            return True, -1, ""
+        return True, 0, ""
 
     def _notify(self) -> None:
         snap = self.snapshot()
