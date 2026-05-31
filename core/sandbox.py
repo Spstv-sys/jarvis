@@ -58,6 +58,10 @@ _IMAGE       = str(_cfg("JARVIS_SANDBOX_IMAGE", "python:3.11-slim"))
 _MEM         = str(_cfg("JARVIS_SANDBOX_MEM", "256m"))
 _CPUS        = str(_cfg("JARVIS_SANDBOX_CPUS", "1.0"))
 _DEF_TIMEOUT = int(_cfg("JARVIS_SANDBOX_TIMEOUT", 15))
+# Небезпечний fallback на ХОСТОВИЙ subprocess дозволено лише ЯВНО: він виконує
+# (потенційно згенерований LLM) код на хості без мережевої/ФС-ізоляції.
+# У режимі auto без Docker ми НЕ робимо це мовчки — потрібен цей opt-in.
+_ALLOW_SUBPROCESS = str(_cfg("JARVIS_SANDBOX_ALLOW_SUBPROCESS", "0")).lower() in ("1", "true", "yes", "on")
 
 
 @dataclass
@@ -94,6 +98,11 @@ def _docker_available() -> bool:
     return _DOCKER_OK
 
 
+def _subprocess_allowed() -> bool:
+    """Host-subprocess дозволено лише явно: режим 'subprocess' або прапорець."""
+    return _MODE == "subprocess" or _ALLOW_SUBPROCESS
+
+
 def _resolve_engine() -> str:
     """Визначити фактичний движок з урахуванням режиму та доступності Docker."""
     if _MODE == "disabled":
@@ -102,8 +111,11 @@ def _resolve_engine() -> str:
         return "docker" if _docker_available() else "disabled"
     if _MODE == "subprocess":
         return "subprocess"
-    # auto:
-    return "docker" if _docker_available() else "subprocess"
+    # auto: Docker за наявності; інакше host-subprocess ЛИШЕ за явним дозволом,
+    # бо це виконання коду на хості без ізоляції.
+    if _docker_available():
+        return "docker"
+    return "subprocess" if _ALLOW_SUBPROCESS else "disabled"
 
 
 def _think(stage: str, msg: str, **fields) -> None:
@@ -135,11 +147,16 @@ def run_python(
     started = time.time()
 
     if engine == "disabled":
-        _think("info", f"sandbox: відмова виконати {os.path.basename(script_path)} — режим disabled",
+        if _MODE == "disabled":
+            reason = "sandbox disabled by config (JARVIS_SANDBOX=disabled)"
+        else:
+            reason = ("Docker недоступний, а host-subprocess заборонено. Встанови Docker "
+                      "або задай JARVIS_SANDBOX_ALLOW_SUBPROCESS=1 (виконання коду на хості "
+                      "— менш безпечно).")
+        _think("info", f"sandbox: відмова виконати {os.path.basename(script_path)} — {reason}",
                scope="sandbox")
         return SandboxResult(
-            ok=False, returncode=-1, stdout="",
-            stderr="sandbox disabled by config (JARVIS_SANDBOX=disabled)",
+            ok=False, returncode=-1, stdout="", stderr=reason,
             engine="disabled", duration_sec=0.0,
         )
 
@@ -147,8 +164,17 @@ def run_python(
         try:
             return _run_docker(script_path, args, timeout, stdin_text, started)
         except Exception as e:
-            logger.warning("[Sandbox] docker run failed, fallback to subprocess: %s", e)
-            _think("info", f"sandbox: docker провалився ({e}) → fallback subprocess",
+            logger.warning("[Sandbox] docker run failed: %s", e)
+            if not _subprocess_allowed():
+                _think("info", f"sandbox: docker провалився ({e}); subprocess-fallback заборонено",
+                       scope="sandbox")
+                return SandboxResult(
+                    ok=False, returncode=-1, stdout="",
+                    stderr=(f"docker failed ({e}); host subprocess fallback заборонено. "
+                            "Задай JARVIS_SANDBOX_ALLOW_SUBPROCESS=1, щоб дозволити виконання на хості."),
+                    engine="disabled", duration_sec=time.time() - started,
+                )
+            _think("info", f"sandbox: docker провалився ({e}) → fallback subprocess (дозволено)",
                    scope="sandbox")
             engine = "subprocess"
 
@@ -254,4 +280,6 @@ def status() -> dict:
         "memory_limit":    _MEM,
         "cpu_limit":       _CPUS,
         "default_timeout": _DEF_TIMEOUT,
+        "allow_subprocess": _ALLOW_SUBPROCESS,
+        "isolated":        _resolve_engine() == "docker",
     }

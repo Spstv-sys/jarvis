@@ -193,13 +193,7 @@ class GoalStack:
 
 
 # --- singleton ---
-_SINGLETON: Optional[GoalStack] = None
-_LOCK = threading.Lock()
-
-
 def get_goal_stack() -> GoalStack:
-    global _SINGLETON
-    with _LOCK:
-        if _SINGLETON is None:
-            _SINGLETON = GoalStack()
-        return _SINGLETON
+    # Зберігання делеговано у core.container (єдине джерело правди).
+    from core.container import get_container
+    return get_container().get_or_create("goal_stack", GoalStack)

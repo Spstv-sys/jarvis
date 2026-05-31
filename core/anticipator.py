@@ -29,7 +29,7 @@ import re
 import time
 import logging
 import threading
-from collections import Counter, defaultdict
+from collections import defaultdict
 from dataclasses import dataclass, asdict, field
 from datetime import datetime
 from typing import Callable, List, Optional, Dict, Any
@@ -171,8 +171,8 @@ class Anticipator:
             try:
                 from core.thought_log import think
                 think("info", f"proactive muted by affect: {reason}")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"anticipator: thought_log emit (muted) пропущено: {e}", exc_info=True)
         return None
 
     # ------------------------------------------------------------------
@@ -209,8 +209,8 @@ class Anticipator:
                 from core.thought_log import think
                 think("info", f"proactive accepted: {sug.text[:80]}",
                       sug_id=sug.id, source=sug.source)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"anticipator: thought_log emit (accepted) пропущено: {e}", exc_info=True)
             self._notify()
         return sug
 
@@ -228,8 +228,8 @@ class Anticipator:
                 from core.thought_log import think
                 think("info", f"proactive dismissed: {sug.text[:80]}",
                       sug_id=sug.id, source=sug.source)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"anticipator: thought_log emit (dismissed) пропущено: {e}", exc_info=True)
             self._notify()
         return sug is not None
 
@@ -268,8 +268,8 @@ class Anticipator:
                     think("info",
                           f"proactive suppressed by affect ({reason}): "
                           f"{len(new_sugs) - len(kept)} ідей відкинуто")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"anticipator: thought_log emit (suppressed) пропущено: {e}", exc_info=True)
             new_sugs = kept
         # Понижуємо пріоритет пропозицій, якщо користувач втомлений (але не URGENT).
         if prio_shift < 0:
@@ -311,8 +311,8 @@ class Anticipator:
                 from core.thought_log import think
                 think("info", f"proactive: {len(accepted_new)} нових пропозицій",
                       sources=[s.source for s in accepted_new])
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"anticipator: thought_log emit (proposals) пропущено: {e}", exc_info=True)
             self._notify()
         return accepted_new
 
@@ -544,19 +544,13 @@ class Anticipator:
                     meta={"dedup_key": "system:battery_low",
                           "battery_pct": int(bat.percent)},
                 ))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"anticipator: побудова battery-пропозиції не вдалася: {e}", exc_info=True)
         return out
 
 
 # ---------------------------------------------------------------------------
-_SINGLETON: Optional[Anticipator] = None
-_SINGLETON_LOCK = threading.Lock()
-
-
 def get_anticipator() -> Anticipator:
-    global _SINGLETON
-    with _SINGLETON_LOCK:
-        if _SINGLETON is None:
-            _SINGLETON = Anticipator()
-        return _SINGLETON
+    # Зберігання делеговано у core.container (єдине джерело правди).
+    from core.container import get_container
+    return get_container().get_or_create("anticipator", Anticipator)

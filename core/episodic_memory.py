@@ -30,7 +30,7 @@ import time
 import sqlite3
 import logging
 import threading
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from typing import Optional, List, Iterable, Any
 from datetime import datetime
 
@@ -187,8 +187,8 @@ class EpisodicMemory:
         try:
             from core.thought_log import think, STAGE_EPISODIC
             think(STAGE_EPISODIC, f"записано [{kind}] {text[:120]}", id=event_id, actor=actor)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"episodic_memory: thought_log emit пропущено: {e}", exc_info=True)
         return event_id
 
     # ------------------------------------------------------------------
@@ -309,14 +309,13 @@ class EpisodicMemory:
 
 
 # ---------------------------------------------------------------------------
-_SINGLETON: Optional[EpisodicMemory] = None
-_SINGLETON_LOCK = threading.Lock()
-
-
 def get_episodic_memory() -> EpisodicMemory:
-    global _SINGLETON
-    with _SINGLETON_LOCK:
-        if _SINGLETON is None:
-            db_path = getattr(config, "EPISODIC_DB_PATH", None)
-            _SINGLETON = EpisodicMemory(db_path=db_path)
-        return _SINGLETON
+    # Зберігання делеговано у core.container (єдине джерело правди);
+    # логіка конструювання (db_path з config) лишається тут.
+    from core.container import get_container
+
+    def _factory() -> EpisodicMemory:
+        db_path = getattr(config, "EPISODIC_DB_PATH", None)
+        return EpisodicMemory(db_path=db_path)
+
+    return get_container().get_or_create("episodic_memory", _factory)

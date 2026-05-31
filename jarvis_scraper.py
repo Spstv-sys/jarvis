@@ -1,6 +1,5 @@
 import requests
 import urllib3
-from urllib.parse import quote
 from urllib3.util.retry import Retry
 from bs4 import BeautifulSoup
 import logging

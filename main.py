@@ -6,16 +6,17 @@ import threading
 import queue
 import logging
 import logging.handlers
-import shutil
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 import config
 from dotenv import load_dotenv
 import psutil
-import keyboard
+try:
+    import keyboard
+except Exception:  # headless/без прав — keyboard може падати на import
+    keyboard = None
 from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
 from colorama import init, Fore
 from rapidfuzz import fuzz
 
@@ -25,11 +26,6 @@ try:
 except ImportError:
     pygame = None
 
-from jarvis_media import JarvisYouTube
-from jarvis_scraper import JarvisScraper
-
-from core.memory import JarvisDatabase
-from core.memory_rag import JarvisSmartMemory
 from core.audio_manager import AudioManager
 from core.llm_handler import LLMHandler
 from core.system_actions import SystemActions
@@ -73,7 +69,8 @@ class JarvisUltimate:
         self.youtube = _subsystems["youtube"]
 
         self.stop_event = threading.Event()
-        keyboard.add_hotkey('esc', self.stop_event.set)
+        if keyboard is not None:
+            keyboard.add_hotkey('esc', self.stop_event.set)
 
         # Cooperative cancellation flag for long-running skills (e.g. multi-stage
         # agent chain). Set by the "stop_voice" trigger via _request_cancel().

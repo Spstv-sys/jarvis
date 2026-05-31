@@ -1,0 +1,129 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis"
+version = "0.1.0"
+description = "JARVIS — україномовний голосовий AI-асистент з багатошаровою когнітивною архітектурою"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+
+# ---------------------------------------------------------------------------
+# Базові залежності (headless «мозок» + сервер).
+# Піни — нижні межі (запобігають установці несумісних старих версій) плюс
+# верхні кепи на пакети з частими ламкими змінами (langchain*, chromadb).
+# ТОЧНА відтворюваність — через локфайл (див. примітку наприкінці файлу).
+# ---------------------------------------------------------------------------
+dependencies = [
+    # --- Бази даних та векторна пам'ять (RAG) ---
+    "chromadb>=0.5,<0.7",
+    "langchain-community>=0.3,<0.4",
+    "langchain-chroma>=0.1,<0.2",
+    "langchain-huggingface>=0.1,<0.3",
+    "langchain-text-splitters>=0.3,<0.4",
+    "sentence-transformers>=2.7",
+    "sentencepiece>=0.2",
+
+    # --- LLM-провайдери ---
+    "google-genai>=0.3",
+    "openai>=1.30",
+    "ollama>=0.2",
+    "certifi>=2024.2.2",
+
+    # --- Розпізнавання мовлення / wake-word / синтез ---
+    "SpeechRecognition>=3.10",
+    "openwakeword>=0.6.0",
+    "faster-whisper>=1.0",
+    "edge-tts>=6.1",
+    "numpy>=1.24,<3",
+
+    # --- Системні утиліти ---
+    "psutil>=5.9",
+    "keyboard>=0.13.5",
+    "watchdog>=3.0",
+    "Pillow>=10.0",
+
+    # --- Мережа та парсинг ---
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+    "duckduckgo-search>=6.0",
+    "python-dotenv>=1.0",
+
+    # --- Допоміжні ---
+    "colorama>=0.4.4",
+    "rapidfuzz>=3.0",
+
+    # --- Сервер (FastAPI/WebSocket) ---
+    "fastapi>=0.110,<1.0",
+    "uvicorn[standard]>=0.29",
+    "python-multipart>=0.0.9",
+
+    # --- Парсинг документів (PDF / DOCX / OCR / EPUB / XLSX) ---
+    "PyMuPDF>=1.24",
+    "python-docx>=1.1",
+    "pytesseract>=0.3.10",
+    "EbookLib>=0.18",
+    "openpyxl>=3.1",
+]
+
+[project.optional-dependencies]
+# Десктопний режим (GUI + керування ОС + локальний мікрофон/звук).
+# Не потрібен для headless-сервера.
+desktop = [
+    "PyAudio>=0.2.13",
+    "PyAutoGUI>=0.9.54",
+    "screen-brightness-control>=0.16",
+    "customtkinter>=5.2",
+    "pygame>=2.5",
+]
+
+# Knowledge Graph (вмикається через KG_ENABLED=1).
+# Після установки: python -m spacy download uk_core_news_md
+kg = [
+    "spacy>=3.7,<4.0",
+]
+
+# Розробка / тести / лінтинг.
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+]
+
+[tool.setuptools]
+# Застосунок із пласким лейаутом: явні модулі верхнього рівня + пакети,
+# щоб уникнути помилок авто-дискаверу setuptools.
+py-modules = ["main", "server", "config", "jarvis_media", "jarvis_scraper"]
+
+[tool.setuptools.packages.find]
+# core/ та skills/ — PEP 420 namespace-пакети (без __init__.py), тож
+# потрібен namespaces=true, інакше їх не буде включено в інсталяцію.
+namespaces = true
+include = ["core*", "webapp*", "skills*"]
+exclude = ["tests*", "ui*", "training*", "skills.pending*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+# Згенероване/вендорне/тренувальне — поза лінтингом.
+extend-exclude = ["ui/web", "training", "build", "dist", "*.venv*"]
+
+[tool.ruff.lint]
+# Базовий набір: pyflakes (F) + pycodestyle (E) + isort (I).
+select = ["E", "F", "I"]
+ignore = [
+    "E501",  # довжину рядків контролюємо line-length, не падаємо на ній
+    "E402",  # подекуди свідомі ліниві імпорти не на початку файлу (з noqa)
+]
+
+# ---------------------------------------------------------------------------
+# ПРИМІТКА про відтворюваність:
+# Цей файл фіксує СУМІСНІ ДІАПАЗОНИ версій (джерело правди залежностей).
+# Для точного, відтворюваного середовища згенеруйте локфайл у реальному
+# оточенні після установ

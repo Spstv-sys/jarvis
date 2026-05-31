@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 
@@ -146,14 +146,11 @@ class UserProfile:
 
 
 # ----------------------------------------------------------------------
-_GLOBAL: Optional[UserProfile] = None
-_GLOBAL_LOCK = threading.Lock()
-
-
 def get_user_profile(db) -> UserProfile:
-    """Lazy-singleton. Перший виклик прив'язує до конкретної БД."""
-    global _GLOBAL
-    with _GLOBAL_LOCK:
-        if _GLOBAL is None:
-            _GLOBAL = UserProfile(db)
-        return _GLOBAL
+    """Lazy-singleton. Перший виклик прив'язує до конкретної БД.
+
+    Зберігання делеговано у core.container; ``db`` з першого виклику
+    фіксується у фабриці (наступні виклики повертають той самий інстанс).
+    """
+    from core.container import get_container
+    return get_container().get_or_create("user_profile", lambda: UserProfile(db))

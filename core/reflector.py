@@ -214,8 +214,8 @@ class Reflector:
         try:
             from core.thought_log import think
             think("info", f"reflect: {len(saved)} нових уроків", scope="reflector")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"reflector: thought_log emit пропущено: {e}", exc_info=True)
         self._notify()
         return saved
 
@@ -631,13 +631,7 @@ class Reflector:
 
 
 # ---------------------------------------------------------------------------
-_SINGLETON: Optional[Reflector] = None
-_SINGLETON_LOCK = threading.Lock()
-
-
 def get_reflector() -> Reflector:
-    global _SINGLETON
-    with _SINGLETON_LOCK:
-        if _SINGLETON is None:
-            _SINGLETON = Reflector()
-        return _SINGLETON
+    # Зберігання делеговано у core.container (єдине джерело правди).
+    from core.container import get_container
+    return get_container().get_or_create("reflector", Reflector)

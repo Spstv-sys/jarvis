@@ -21,7 +21,7 @@ import re
 import sqlite3
 import logging
 import threading
-from typing import Iterable, List, Tuple, Optional, Dict, Any
+from typing import List, Tuple, Optional, Dict, Any
 from collections import Counter
 
 logger = logging.getLogger(__name__)
@@ -321,23 +321,19 @@ def ingest_chunk_into_kg(
 
 
 # -------------------------- Singleton --------------------------
-_KG_SINGLETON: Optional[KnowledgeGraph] = None
-_KG_LOCK = threading.Lock()
-
-
 def get_kg(db_path: Optional[str] = None) -> KnowledgeGraph:
-    global _KG_SINGLETON
-    if _KG_SINGLETON is not None:
-        return _KG_SINGLETON
-    with _KG_LOCK:
-        if _KG_SINGLETON is None:
-            try:
-                import config as _cfg
-                default_path = getattr(
-                    _cfg, "KG_DB_PATH",
-                    os.path.join(_cfg.BASE_DIR, "jarvis_kg", "graph.sqlite"),
-                )
-            except Exception:
-                default_path = os.path.join(os.getcwd(), "jarvis_kg", "graph.sqlite")
-            _KG_SINGLETON = KnowledgeGraph(db_path or default_path)
-        return _KG_SINGLETON
+    # Зберігання делеговано у core.container; логіка вибору шляху лишається тут.
+    from core.container import get_container
+
+    def _factory() -> KnowledgeGraph:
+        try:
+            import config as _cfg
+            default_path = getattr(
+                _cfg, "KG_DB_PATH",
+                os.path.join(_cfg.BASE_DIR, "jarvis_kg", "graph.sqlite"),
+            )
+        except Exception:
+            default_path = os.path.join(os.getcwd(), "jarvis_kg", "graph.sqlite")
+        return KnowledgeGraph(db_path or default_path)
+
+    return get_container().get_or_create("kg", _factory)

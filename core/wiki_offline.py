@@ -17,7 +17,6 @@ from __future__ import annotations
 import logging
 import re
 from typing import List, Dict, Optional
-from urllib.parse import quote
 
 import requests
 
@@ -122,15 +121,19 @@ class WikiOffline:
         return results
 
 
-# Глобальний lazy-singleton ----------------------------------------------------
-_INSTANCE: Optional[WikiOffline] = None
-
-
 def get_wiki_offline() -> Optional[WikiOffline]:
-    """Повернути глобальний екземпляр або None, якщо не сконфігуровано."""
-    global _INSTANCE
-    if _INSTANCE is not None:
-        return _INSTANCE
+    """Повернути глобальний екземпляр або None, якщо не сконфігуровано.
+
+    Зберігання делеговано у core.container. На відміну від решти підсистем,
+    тут результат ``None`` (не сконфігуровано) НЕ кешується — щоб пізніше,
+    коли зʼявиться конфіг, інстанс міг створитися. Тому замість
+    ``get_or_create`` використовуємо ``peek`` + ``set``.
+    """
+    from core.container import get_container
+    container = get_container()
+    inst = container.peek("wiki_offline")
+    if inst is not None:
+        return inst  # type: ignore[return-value]
     try:
         import config  # відкладений імпорт, щоб уникнути циклів
 
@@ -138,8 +141,9 @@ def get_wiki_offline() -> Optional[WikiOffline]:
         book = getattr(config, "WIKI_OFFLINE_BOOK", "") or ""
         if not url or not book:
             return None
-        _INSTANCE = WikiOffline(url, book)
-        return _INSTANCE
+        inst = WikiOffline(url, book)
+        container.set("wiki_offline", inst)
+        return inst
     except Exception as e:
         logger.warning(f"get_wiki_offline init failed: {e}")
         return None

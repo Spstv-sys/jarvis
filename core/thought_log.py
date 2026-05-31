@@ -253,10 +253,6 @@ class ThoughtLog:
 
 
 # ---------------------------------------------------------------------------
-_SINGLETON: Optional[ThoughtLog] = None
-_SINGLETON_LOCK = threading.Lock()
-
-
 def _load_config():
     """Читає конфіг з config.py (толерантно)."""
     try:
@@ -273,11 +269,12 @@ def _load_config():
 
 
 def get_thought_log() -> ThoughtLog:
-    global _SINGLETON
-    with _SINGLETON_LOCK:
-        if _SINGLETON is None:
-            _SINGLETON = ThoughtLog(**_load_config())
-        return _SINGLETON
+    # Зберігання делеговано у core.container (єдине джерело правди);
+    # логіка конструювання (_load_config) лишається тут.
+    from core.container import get_container
+    return get_container().get_or_create(
+        "thought_log", lambda: ThoughtLog(**_load_config())
+    )
 
 
 def think(stage: str, text: str, **meta) -> None:

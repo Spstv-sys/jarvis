@@ -390,9 +390,12 @@ class AudioManager:
                 if score > config.OWW_WAKE_THRESHOLD:
                     detected_model = max(prediction, key=prediction.get) if prediction else "unknown"
                     logger.info(f"OWW: wake word виявлено! модель='{detected_model}', score={score:.3f}")
+                    # Миттєвий сигнал готовності — локальний біп (wake.wav).
+                    # РАНІШЕ тут був self.speak("Слухаю.") через edge-tts (мережа):
+                    # синтез+відтворення+кулдаун блокували старт запису, і перше
+                    # слово команди губилось. Біп не блокує — запис стартує одразу.
                     self.play_fx("wake")
                     self.current_volume = 0
-                    self.speak("Слухаю.")
                     return True
 
         except Exception as e:
@@ -449,9 +452,12 @@ class AudioManager:
 
             if any(w in text for w in wake_forms):
                 logger.info(f"Whisper-fallback: wake word виявлено в тексті '{text}'")
+                # Миттєвий сигнал готовності — локальний біп (wake.wav).
+                # РАНІШЕ тут був self.speak("Слухаю.") через edge-tts (мережа):
+                # синтез+відтворення+кулдаун блокували старт запису, і перше
+                # слово команди губилось. Біп не блокує — захоплення починається одразу.
                 self.play_fx("wake")
                 self.current_volume = 0
-                self.speak("Слухаю.")
                 return True
             return False
 

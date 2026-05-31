@@ -7,10 +7,15 @@
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from core.context import JarvisContext
+
 
 class HandlerBase:
-    def __init__(self, jarvis) -> None:
-        self.jarvis = jarvis
+    def __init__(self, jarvis: "JarvisContext") -> None:
+        self.jarvis: "JarvisContext" = jarvis
 
     # ------------------------------------------------------------------
     # Convenience accessors

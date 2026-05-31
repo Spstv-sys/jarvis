@@ -25,8 +25,8 @@ import re
 import json
 import time
 import logging
-from dataclasses import dataclass, field
-from typing import Callable, List, Optional, Dict, Any
+from dataclasses import dataclass
+from typing import Callable, List, Optional, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -222,8 +222,8 @@ class Executor:
             # Все одно проводимо в TTS — користувач хоче чути проміжки.
             try:
                 original_enqueue(text)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"planner: TTS passthrough під час захоплення плану не вдався: {e}", exc_info=True)
 
         for step in plan:
             # Кооперативне скасування.
@@ -238,19 +238,19 @@ class Executor:
             try:
                 from core.thought_log import think, STAGE_STEP
                 think(STAGE_STEP, f"виконую [{step.n}] {step.skill}: {cmd[:120]}", n=step.n, skill=step.skill)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"planner: thought_log emit (step) пропущено: {e}", exc_info=True)
             try:
                 from core.goal_stack import get_goal_stack
                 get_goal_stack().step_start(step.n)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"planner: goal_stack.step_start пропущено: {e}", exc_info=True)
 
             captured.clear()
             try:
                 jarvis.enqueue_speech = capture  # type: ignore[assignment]
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"planner: підміна enqueue_speech не вдалася: {e}", exc_info=True)
 
             t0 = time.time()
             ok = True
@@ -286,8 +286,8 @@ class Executor:
                     step.n, ok=last.ok, output=last.output,
                     error=last.error, duration_sec=last.duration_sec,
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"planner: goal_stack.step_end пропущено: {e}", exc_info=True)
 
             # Запис у Working Memory (якщо є).
             wm = getattr(jarvis, "working_memory", None)
@@ -297,8 +297,8 @@ class Executor:
                         f"[крок {step.n}/{step.skill}] {output[:300]}",
                         skill=f"plan:{step.skill}",
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"planner: thought_log emit (output) пропущено: {e}", exc_info=True)
 
         return results
 

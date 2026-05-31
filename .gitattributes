@@ -1,0 +1,22 @@
+# Нормалізація закінчень рядків (прибирає попередження LF→CRLF).
+# У репозиторії — LF; у робочій копії Windows git підставляє CRLF за потреби.
+* text=auto eol=lf
+
+# Windows-скрипти лишаємо з CRLF.
+*.bat   text eol=crlf
+*.ps1   text eol=crlf
+*.cmd   text eol=crlf
+
+# Бінарні — git не чіпає.
+*.png   binary
+*.jpg   binary
+*.ico   binary
+*.wav   binary
+*.mp3   binary
+*.onnx  binary
+*.zim   binary
+*.docx  binary
+*.xlsx  binary
+*.pdf   binary
+*.sqlite binary
+*.db    binary

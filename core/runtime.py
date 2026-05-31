@@ -21,13 +21,17 @@ import time
 import queue
 import logging
 import threading
+from typing import TYPE_CHECKING
 
 import config
+
+if TYPE_CHECKING:
+    from core.context import JarvisContext
 
 logger = logging.getLogger(__name__)
 
 
-def request_cancel(jarvis) -> None:
+def request_cancel(jarvis: "JarvisContext") -> None:
     """Сигналізує кооперативне скасування всім активним BrainWorker-ам.
 
     Довгі скіли перевіряють :attr:`cancel_event` між етапами і завершуються
@@ -38,7 +42,7 @@ def request_cancel(jarvis) -> None:
     logger.info("Cancellation requested — running skills should bail out.")
 
 
-def force_shutdown(jarvis) -> None:
+def force_shutdown(jarvis: "JarvisContext") -> None:
     """Жорстко завершує весь процес після команди STOP.
 
     ``JarvisUltimate`` зазвичай живе у daemon-потоці (server.py, ui/hub.py),
@@ -75,7 +79,7 @@ def force_shutdown(jarvis) -> None:
     threading.Thread(target=_kill, daemon=True, name="ShutdownThread").start()
 
 
-def processing_loop(jarvis) -> None:
+def processing_loop(jarvis: "JarvisContext") -> None:
     """Головний цикл обробки команд.
 
     Витягує команди з ``input_queue`` і подає кожну в обмежений пул потоків
@@ -101,7 +105,7 @@ def processing_loop(jarvis) -> None:
         logger.error(f"BrainPool shutdown error: {exc}")
 
 
-def process_command(jarvis, cmd: str) -> None:
+def process_command(jarvis: "JarvisContext", cmd: str) -> None:
     """Обробляє одну команду: watchdog, виконання, журнал, STOP-завершення."""
     # Reset cancellation flag for each new command so a previous cancel
     # request does not silently abort an unrelated next command.

@@ -71,10 +71,15 @@ def jarvis_instance():
     mock_observer.return_value = mock_observer_instance
 
     patches = [
-        patch("main.JarvisDatabase",    return_value=MagicMock()),
-        patch("main.JarvisSmartMemory", return_value=MagicMock()),
-        patch("main.JarvisScraper",     return_value=MagicMock()),
-        patch("main.JarvisYouTube",     return_value=MagicMock()),
+        # Підсистеми db/brain/scraper/youtube тепер створюються у
+        # core.bootstrap.init_core_subsystems (рефакторинг god-file), а не
+        # прямими класами в main.* — тож мокаємо саме цю функцію.
+        patch("core.bootstrap.init_core_subsystems", return_value={
+            "db":      MagicMock(),
+            "brain":   MagicMock(),
+            "scraper": MagicMock(),
+            "youtube": MagicMock(),
+        }),
         patch("main.AudioManager",      return_value=mock_audio),
         patch("main.LLMHandler",        return_value=MagicMock()),
         patch("main.SystemActions",     return_value=MagicMock()),
@@ -99,3 +104,18 @@ def jarvis_instance():
                 p.stop()
             except RuntimeError:
                 pass
+
+
+@pytest.fixture(autouse=True)
+def _reset_container():
+    """Ізоляція тестів: чистимо DI-контейнер до і після кожного тесту.
+
+    Підсистеми-singleton (working_memory, affect, episodic_memory тощо)
+    тепер зберігаються у core.container. Без скидання інстанс, створений в
+    одному тесті, протікав би у наступні. autouse=True застосовує це до
+    кожного тесту автоматично.
+    """
+    from core.container import reset_container
+    reset_container()
+    yield
+    reset_container()

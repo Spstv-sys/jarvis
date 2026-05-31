@@ -27,7 +27,7 @@ import threading
 import logging
 from collections import deque
 from dataclasses import dataclass, field, asdict
-from typing import Deque, Dict, List, Optional, Tuple
+from typing import Deque, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -459,13 +459,7 @@ class WorkingMemory:
 # ---------------------------------------------------------------------------
 # Singleton
 # ---------------------------------------------------------------------------
-_GLOBAL: Optional[WorkingMemory] = None
-_GLOBAL_LOCK = threading.Lock()
-
-
 def get_working_memory() -> WorkingMemory:
-    global _GLOBAL
-    with _GLOBAL_LOCK:
-        if _GLOBAL is None:
-            _GLOBAL = WorkingMemory()
-        return _GLOBAL
+    # Зберігання делеговано у core.container (єдине джерело правди).
+    from core.container import get_container
+    return get_container().get_or_create("working_memory", WorkingMemory)

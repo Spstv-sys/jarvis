@@ -17,14 +17,18 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 import config
 from core import fuzzy_match
 
+if TYPE_CHECKING:
+    from core.context import JarvisContext
+
 logger = logging.getLogger(__name__)
 
 
-def dispatch(jarvis, cmd: str) -> str:
+def dispatch(jarvis: "JarvisContext", cmd: str) -> str:
     """Маршрутизує команду ``cmd`` через підсистеми ``jarvis``.
 
     Повертає рядок-статус (``"CONTINUE"`` / ``"STOP"`` / результат handler-а).

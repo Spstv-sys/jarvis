@@ -8,6 +8,11 @@
 
 Кожна навичка — це модуль у ``skills/*.py`` з атрибутами ``TRIGGERS``
 (список фраз) та ``execute(cmd, jarvis)``.
+
+Контракт ``jarvis`` для скілів описаний у :class:`core.context.SkillContext`:
+плагіни гарантовано мають доступ лише до ``jarvis.audio``, ``jarvis.llm`` та
+``jarvis.brain``. Покладатися на інші внутрішні атрибути не варто — їх може
+змінити майбутній рефакторинг.
 """
 from __future__ import annotations
 
@@ -20,6 +25,8 @@ from typing import Optional
 
 from colorama import Fore
 
+from core.utils import check_code_safety
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,10 +36,28 @@ def load_skills(skills_dir: str, triggers: Optional[dict] = None) -> list[dict]:
     Повертає список ``{'triggers', 'func', 'name'}``. Якщо передано
     ``triggers`` (вбудовані маршрути), додатково попереджає про колізії.
     """
+    # Перевірка безпеки ПЕРЕД виконанням коду навички (exec_module запускає
+    # довільний код модуля). За умовчанням — лише попередження (бо комплектні
+    # довірені скіли можуть легітимно вживати, напр., importlib). Суворий режим
+    # JARVIS_SKILL_SAFETY_ENFORCE=1 пропускає (не виконує) небезпечні навички.
+    enforce = os.getenv("JARVIS_SKILL_SAFETY_ENFORCE", "0").lower() in ("1", "true", "yes", "on")
+
     skills: list[dict] = []
     for file in glob.glob(os.path.join(skills_dir, "*.py")):
         module_name = os.path.basename(file)[:-3]
         try:
+            try:
+                safe, reason = check_code_safety(open(file, encoding="utf-8").read())
+            except OSError:
+                safe, reason = True, ""  # помилку читання обробить exec_module нижче
+            if not safe:
+                msg = f"Навичка {module_name} НЕ пройшла перевірку безпеки: {reason}"
+                logger.warning(msg)
+                print(f"{Fore.YELLOW}⚠ {msg}")
+                if enforce:
+                    logger.warning(f"Навичку {module_name} пропущено (JARVIS_SKILL_SAFETY_ENFORCE=1).")
+                    continue
+
             sys.modules.pop(module_name, None)
             spec = importlib.util.spec_from_file_location(module_name, file)
             module = importlib.util.module_from_spec(spec)

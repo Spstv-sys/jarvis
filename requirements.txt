@@ -1,3 +1,11 @@
+# ─────────────────────────────────────────────────────────────────────────
+# КАНОНІЧНЕ джерело залежностей — pyproject.toml ([project].dependencies + extras).
+# Цей файл — зручний ПОВНИЙ набір для `pip install -r requirements.txt`
+# (приблизний еквівалент `pip install -e ".[desktop,kg]"`).
+# Синхронність із pyproject перевіряє tests/test_requirements_sync.py.
+# Тренувальні залежності — окремо: training/neo_wakeword/requirements-train.txt.
+# ─────────────────────────────────────────────────────────────────────────
+
 # --- Бази даних та векторна пам'ять ---
 chromadb
 langchain-community

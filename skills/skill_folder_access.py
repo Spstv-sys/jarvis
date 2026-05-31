@@ -1,4 +1,3 @@
-import os
 import config
 
 # 1. КЛЮЧІ ДОСТУПУ (Шорткати)

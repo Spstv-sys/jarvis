@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import re
 import logging
-from typing import Optional, Tuple, Dict, Any
+from typing import Tuple, Dict, Any
 from html import unescape
 import xml.etree.ElementTree as ET
 

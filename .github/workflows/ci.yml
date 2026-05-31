@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Unit tests (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install light test deps
+        run: |
+          python -m pip install --upgrade pip
+          # Лише легкі залежності. Важкі (chromadb / langchain / torch /
+          # numpy / faster-whisper / audio / OS-бібліотеки) заглушені у
+          # tests/conftest.py, тож для unit-тестів вони не потрібні.
+          pip install pytest rapidfuzz colorama python-dotenv psutil requests pyyaml
+
+      - name: Syntax check (compileall)
+        run: python -m compileall -q core webapp main.py server.py config.py
+
+      - name: Run unit tests
+        env:
+          # Тримаємо CI герметичним: без персистенсу think-логу на диск.
+          THOUGHT_LOG_PERSIST: "0"
+        run: pytest tests/ -q -p no:cacheprovider
+        # test_integration_heavy скіпається сам (JARVIS_INTEGRATION не задано);
+        # test_knowledge_graph працює на реальному SQLite (stdlib).
+
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - run: pip install ruff
+
+      # БЛОКУЄ: F401 (мертві імпорти) на ядрі/сервері/входах. Ця поверхня
+      # вичищена й перевірена AST (0 невикористаних імпортів), тож гейт зелений
+      # і не дає повернутися мертвим імпортам.
+      - name: Ruff F401 (blocking — no dead imports)
+        run: ruff check core webapp main.py server.py config.py jarvis_media.py jarvis_scraper.py --select F401 --output-format=github
+
+      # Інформативно: повний pyflakes+стиль (F/E/I) по всьому репо — анотації на
+      # PR, поки не блокує. Наступний ратчет: підняти до `--select F` (без "|| true")
+      # після локального `ruff check --select F --fix`.
+      - name: Ruff full (annotations, non-blocking)
+        run: ruff check . --output-format=github || true
+
+# ---------------------------------------------------------------------------
+# Інтеграційні тести важких підсистем (ChromaDB / spacy-модель / Ollama)
+# НЕ запускаються в CI: потребують зовнішніх сервісів, моделей і мережі.
+# Запуск локально:
+#     pip install -e ".[dev]"   # + chromadb/langchain/spacy + `ollama serve`
+#     JARVIS_INTEGRATION=1 pytest tests/test_integration_heavy.py -v
+# ---------------------------------------------------------------------------

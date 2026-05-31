@@ -53,8 +53,8 @@ class Critic:
             think(STAGE_CRITIC,
                   f"{'✓' if v.success else '✗'} {v.source}/{v.confidence:.2f}: {v.reason[:120]}",
                   success=v.success, suggestion=v.suggestion[:120] if v.suggestion else None)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"critic: thought_log emit пропущено: {e}", exc_info=True)
         return v
 
     def _evaluate_inner(self, goal: str, results: list) -> Verdict:

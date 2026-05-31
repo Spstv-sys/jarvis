@@ -39,7 +39,7 @@ import time
 import logging
 import threading
 from collections import deque
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from typing import Callable, Deque, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -415,13 +415,7 @@ def _clip(x: float, lo: float, hi: float) -> float:
 # ---------------------------------------------------------------------------
 # Singleton
 # ---------------------------------------------------------------------------
-_GLOBAL: Optional[Affect] = None
-_GLOBAL_LOCK = threading.Lock()
-
-
 def get_affect() -> Affect:
-    global _GLOBAL
-    with _GLOBAL_LOCK:
-        if _GLOBAL is None:
-            _GLOBAL = Affect()
-        return _GLOBAL
+    # Зберігання делеговано у core.container (єдине джерело правди).
+    from core.container import get_container
+    return get_container().get_or_create("affect", Affect)

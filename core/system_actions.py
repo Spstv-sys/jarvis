@@ -6,9 +6,17 @@ import threading
 import logging
 import subprocess
 import psutil
-import keyboard
-import pyautogui
-import screen_brightness_control as sbc
+
+# ОС-залежні бібліотеки автоматизації — опційні: на headless-сервері
+# (без дисплея/прав) їх імпорт може падати, тож не валимо весь модуль.
+try:
+    import keyboard
+except Exception:
+    keyboard = None
+try:
+    import screen_brightness_control as sbc
+except Exception:
+    sbc = None
 
 import config
 
@@ -68,6 +76,12 @@ class SystemActions:
     # -------------------------------------------------------------------------
 
     def cmd_hardware_control(self, cmd: str) -> str:
+        if "яскравість" in cmd and sbc is None:
+            self.audio.speak("Керування яскравістю недоступне на цій платформі.")
+            return "CONTINUE"
+        if "яскравість" not in cmd and keyboard is None:
+            self.audio.speak("Керування гучністю недоступне на цій платформі.")
+            return "CONTINUE"
         try:
             if "гучніше" in cmd:
                 # ✅ Визначаємо крок з команди або використовуємо дефолт
