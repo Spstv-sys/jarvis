@@ -361,8 +361,11 @@ class LLMHandler:
                     continue
                 full_parts.append(delta)
 
+                if is_code:
+                    continue
+                buffer += delta
+
                 if not decided:
-                    buffer += delta
                     if len(buffer) < self._CODE_DETECT_BUFFER:
                         continue
                     is_code = self._looks_like_code(buffer)
@@ -373,11 +376,6 @@ class LLMHandler:
                         continue
                     # else: fall through and start speaking the buffered prefix.
 
-                if is_code:
-                    # Keep consuming stream but do not speak intermediate text.
-                    continue
-
-                buffer += delta
                 parts = self.SENTENCE_END.split(buffer)
                 if len(parts) > 1:
                     for sentence in parts[:-1]:

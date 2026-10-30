@@ -1,0 +1,23 @@
+{
+  "qa_tester.py": "782a0ec0d23646e29b572921e5bd4b1aabe9b5230d77b57d5f27942c73148820",
+  "skill_1780157954.py": "034ede94e105fa99664eb3d7ca2c0d81e945af5bb6bd5b9bee5656406cb037cb",
+  "skill_agent_chain.py": "3ad000a60302d95e83eb805d41b2788283e34f6d37c9b0351aa1777037a1e6e2",
+  "skill_audioconverter.py": "62e01dfb97e184849c828b74f5bbdeaadff968d16610eb7d56014e231bcbf934",
+  "skill_clear_context.py": "681572f9b3e6469981281f65c6669bbe924070b28aa7915eb025dfdbfbdbb1a9",
+  "skill_doc_parser.py": "347bfbccfecb5df464d0052a09346da15eec015c87b7ce706e8a253b9ced89f6",
+  "skill_episodic.py": "2677a2f44735c04d70a0f3513e313df09d339aa3ce2a017341b697425b612628",
+  "skill_finder_run.py": "0d02be0f7afd6b733e227aa954517780b5b1f53f1c9d495fdd2bde66e472774b",
+  "skill_folder_access.py": "0ca1c0a69aa35641bf1b48993ea5a95c5ef7e54f20433d2dee06f7e50c190b17",
+  "skill_learn_doc.py": "fd831d2f2a4c2b3fe7a14be180f17e9f9f5264d2705f4dc2161566d92630b5e2",
+  "skill_learn_folder.py": "27e5f55eb1e493d87f807cd8aef4721b481822d46e18f8383cf4b264e991dbde",
+  "skill_learn_library.py": "228638f7afc91f6f7fa6c91d38818a20f8d4bf93301eac99e18cdade013ea4e7",
+  "skill_list_scripts.py": "886ad8565f962f24b25c87ce4ac66fb92fb5d598320c34d6f082bc734c4bcee1",
+  "skill_make_table.py": "9e5941fe6af397ef6b538a25f95cf7b5a2ec72d9e3b353d5fdeaa6453c0674f1",
+  "skill_nlu_analyzer.py": "f08cde2878fdc25b13b71c9ece64dbe6af33adae569d9f0654eff22b38dc71a2",
+  "skill_photo_to_excel.py": "39f002a58ed717f8c202430ad79b797e536dc72dc2ab4380ee02d794d0ac2bbc",
+  "skill_plan.py": "9748bf33b8ee9a095fe5c68508a80d76da5698937420ae5a8b0e64317a9e3436",
+  "skill_programmer.py": "be0f38914371f5b95ca0f585fc9020f790c27495c39fe2f4e09fdb75393ea571",
+  "skill_script_checker.py": "02e66787e0a768d5fac6a5ff913cd5dda25bd18b37a800ba75b7572aea0b471a",
+  "skill_smart_run.py": "a1590ef374bf7ea704a072453d8f4e9f2e3493c3568c78c94f6a29fb8d6c8e02",
+  "skill_who_is.py": "4c2426eb21fca70e61e918d7f7331d908773494af2ea01931cde2c2fe11efbbc"
+}

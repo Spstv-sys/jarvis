@@ -58,7 +58,9 @@ function createWindow() {
 
   win.setTitle('N.E.O.')
 
-  const targetUrl = 'http://localhost:5173'
+  const targetUrl = app.isPackaged
+    ? `http://127.0.0.1:${process.env.API_PORT || 8001}`
+    : `http://localhost:${process.env.VITE_PORT || 5173}`
   const loadWithRetry = (attempt = 0) => {
     win.loadURL(targetUrl).catch((err) => {
       if (attempt >= 60) {
@@ -95,7 +97,7 @@ function createWindow() {
 }
 
 function startBackendWatcher() {
-  const healthUrl = 'http://127.0.0.1:8001/status'
+  const healthUrl = `http://127.0.0.1:${process.env.API_PORT || 8001}/status`
   const checkIntervalMs = 1500
   let consecutiveFailures = 0
   // 2 провали поспіль ≈ 3 с після зникнення бекенду.
@@ -136,9 +138,9 @@ function shutdownEverything() {
   shuttingDown = true
 
   // 1) Вбити Vite (порт 5173) — окремий node-процес, що залишається висіти.
-  killProcessOnPort(5173)
+  if (!app.isPackaged) killProcessOnPort(Number(process.env.VITE_PORT || 5173))
   // 1b) Вбити Python-бекенд (порт 8001) — на випадок ручного close.
-  killProcessOnPort(8001)
+  killProcessOnPort(Number(process.env.API_PORT || 8001))
 
   // 2) Закрити Electron-вікна та сам процес.
   try { if (win && !win.isDestroyed()) win.destroy() } catch (_) {}

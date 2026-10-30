@@ -36,7 +36,7 @@ dependencies = [
     "SpeechRecognition>=3.10",
     "openwakeword>=0.6.0",
     "faster-whisper>=1.0",
-    "edge-tts>=6.1",
+    "edge-tts>=7.3.1,<8",
     "numpy>=1.24,<3",
 
     # --- Системні утиліти ---
@@ -102,6 +102,9 @@ py-modules = ["main", "server", "config", "jarvis_media", "jarvis_scraper"]
 namespaces = true
 include = ["core*", "webapp*", "skills*"]
 exclude = ["tests*", "ui*", "training*", "skills.pending*"]
+
+[tool.setuptools.package-data]
+core = ["bundled_skills.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

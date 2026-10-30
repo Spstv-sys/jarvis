@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from webapp import state
+from webapp.security import require_access
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_access)])
 
 
 @router.get("/cognition")
@@ -26,8 +27,7 @@ async def get_cognition():
             try:
                 snapshot["working_memory"] = {
                     "context": wm.context_block(),
-                    "entities": [e.__dict__ for e in getattr(wm, "entities", lambda: [])()][:10]
-                                  if hasattr(wm, "entities") else [],
+                    "entities": wm.entity_snapshot(limit=10),
                 }
             except Exception as e:
                 snapshot["wm_error"] = str(e)

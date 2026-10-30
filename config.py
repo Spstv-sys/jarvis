@@ -16,6 +16,10 @@ def _resolve_dir(env_name: str, default_path: str, *fallback_paths: str) -> str:
 # 1. ШЛЯХИ ТА ДИРЕКТОРІЇ
 # ==========================================
 BASE_DIR       = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR       = os.path.abspath(os.getenv("JARVIS_DATA_DIR", BASE_DIR))
+os.makedirs(DATA_DIR, exist_ok=True)
+CORE_DB_PATH   = os.path.join(DATA_DIR, "jarvis_core.db")
+HEADLESS       = os.getenv("JARVIS_HEADLESS", "0").lower() in ("1", "true", "yes", "on")
 SKILLS_DIR     = os.path.join(BASE_DIR, "skills")
 KNOWLEDGE_DIR  = os.path.join(BASE_DIR, "knowledge_base")
 SORTING_DRIVE  = _resolve_dir("JARVIS_DRIVE", "D:\\Jarvis_Sorted", "H:\\Jarvis_Sorted")
@@ -27,8 +31,8 @@ DOCUMENTS_DIR  = _resolve_dir("JARVIS_DOCUMENTS_DIR", "D:\\Documents")
 # ==========================================
 FUZZY_THRESHOLD = 85
 
-VOICE_MODEL  = "uk-UA-OstapNeural"
-VOICE_RATE   = "+30%"
+VOICE_MODEL  = os.getenv("VOICE_MODEL", "uk-UA-OstapNeural")
+VOICE_RATE   = os.getenv("VOICE_RATE", "+30%")
 WAKE_WORDS   = ["hey_jarvis"]
 
 # ----- Ім'я асистента -----
@@ -70,6 +74,7 @@ BRAIN_COMMAND_TIMEOUT = float(os.getenv("BRAIN_COMMAND_TIMEOUT", "300"))
 # 3. ДОДАТКИ
 # ==========================================
 WOT_PATH = os.getenv("WOT_PATH", r"E:\Games\World_of_Tanks_EU\WorldOfTanks.exe")
+EXCEL_PATH = os.getenv("EXCEL_PATH", "")
 
 APPS_MAP = {
     "хром":     "chrome.exe",
@@ -135,7 +140,10 @@ TRIGGERS = {
     # --- Система ---
     "timer":            ["таймер", "нагадай"],
     "hardware":         ["гучніше", "тихіше", "вимкни звук", "яскравість"],
-    "apps_os":          ["відкрий", "закрий", "час кодити", "диск"],
+    "apps_os":          ["відкрий", "закрий", "час кодити", "диск",
+                         "відкрити ексел", "відкрити ексель", "відкрити excel",
+                         "запусти ексел", "запусти ексель", "запусти excel",
+                         "запустити ексел", "запустити ексель", "запустити excel"],
     "vision":           ["що на екрані", "проаналізуй монітор", "що ти бачиш"],
     "code_assistant":   ["проаналізуй файл", "поясни код", "виправ код"],
     "calendar":         ["додай задачу", "заплануй", "розклад", "які плани"],
@@ -204,7 +212,7 @@ LITERATURE_CHUNK_OVERLAP = int(os.getenv("LITERATURE_CHUNK_OVERLAP", "300"))
 # Шлях до SQLite-файлу графа сутностей (персонажі, місця, події).
 KG_DB_PATH = os.getenv(
     "KG_DB_PATH",
-    os.path.join(BASE_DIR, "jarvis_kg", "graph.sqlite"),
+    os.path.join(DATA_DIR, "jarvis_kg", "graph.sqlite"),
 )
 # Чи будувати граф під час ingest книг (вимкнено за замовчуванням —
 # spaCy-модель ~500 МБ, потребує `python -m spacy download uk_core_news_md`).
@@ -219,7 +227,7 @@ INTENT_ROUTER_ENABLED = os.getenv("INTENT_ROUTER_ENABLED", "1") in ("1", "true",
 INTENT_ROUTER_LLM     = os.getenv("INTENT_ROUTER_LLM",     "1") in ("1", "true", "True")
 INTENT_ROUTER_DB      = os.getenv(
     "INTENT_ROUTER_DB",
-    os.path.join(BASE_DIR, "jarvis_intent_cache.sqlite"),
+    os.path.join(DATA_DIR, "jarvis_intent_cache.sqlite"),
 )
 INTENT_ROUTER_MIN_CONF = float(os.getenv("INTENT_ROUTER_MIN_CONF", "0.55"))
 
@@ -232,7 +240,7 @@ INTENT_ROUTER_MIN_CONF = float(os.getenv("INTENT_ROUTER_MIN_CONF", "0.55"))
 EPISODIC_MEMORY_ENABLED = os.getenv("EPISODIC_MEMORY_ENABLED", "1") in ("1", "true", "True")
 EPISODIC_DB_PATH        = os.getenv(
     "EPISODIC_DB_PATH",
-    os.path.join(BASE_DIR, "jarvis_episodic.sqlite"),
+    os.path.join(DATA_DIR, "jarvis_episodic.sqlite"),
 )
 EPISODIC_RETENTION_DAYS = int(os.getenv("EPISODIC_RETENTION_DAYS", "180"))
 
@@ -244,7 +252,7 @@ EPISODIC_RETENTION_DAYS = int(os.getenv("EPISODIC_RETENTION_DAYS", "180"))
 THOUGHT_LOG_PERSIST        = os.getenv("THOUGHT_LOG_PERSIST", "1") in ("1", "true", "True")
 THOUGHT_LOG_DB_PATH        = os.getenv(
     "THOUGHT_LOG_DB_PATH",
-    os.path.join(BASE_DIR, "jarvis_thoughts.sqlite"),
+    os.path.join(DATA_DIR, "jarvis_thoughts.sqlite"),
 )
 THOUGHT_LOG_MAXLEN         = int(os.getenv("THOUGHT_LOG_MAXLEN", "200"))
 THOUGHT_LOG_PRELOAD        = int(os.getenv("THOUGHT_LOG_PRELOAD", "100"))

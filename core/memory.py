@@ -3,6 +3,7 @@ import sqlite3
 import logging
 import threading
 import re
+import config
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,8 @@ _WRITE_PREFIXES = ("INSERT", "UPDATE", "DELETE", "REPLACE",
 class JarvisDatabase:
     MAX_FACTS = 500
 
-    def __init__(self, db_path="jarvis_core.db"):
+    def __init__(self, db_path=None):
+        db_path = db_path or config.CORE_DB_PATH
         self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=10.0)
         self.conn.row_factory = sqlite3.Row  # ✅ Зручний доступ до колонок
         # ВАЖЛИВО: ``check_same_thread=False`` ЗНІМАЄ перевірку sqlite3, але

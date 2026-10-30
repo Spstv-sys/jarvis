@@ -7,7 +7,6 @@ import queue
 import logging
 import logging.handlers
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
 
 import config
 from dotenv import load_dotenv
@@ -38,7 +37,7 @@ load_dotenv()
 
 logging.basicConfig(level=logging.INFO)   # set root level first
 _log_handler = logging.handlers.RotatingFileHandler(
-    'jarvis_system.log',
+    os.path.join(config.DATA_DIR, 'jarvis_system.log'),
     maxBytes=5 * 1024 * 1024,  # 5 MB
     backupCount=3,
     encoding='utf-8',
@@ -251,6 +250,8 @@ class JarvisUltimate:
         threading.Thread(target=mouth_loop, daemon=True, name="MouthThread").start()
 
     def start_ears(self) -> None:
+        if config.HEADLESS or not self.audio.mic_available:
+            return
         def ears_loop():
             while self.is_running:
                 if not self.audio.listen_for_wake_word():

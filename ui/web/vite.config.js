@@ -15,6 +15,12 @@ export default defineConfig(({ mode }) => {
         '/command': `http://localhost:${apiPort}`,
         '/status':  `http://localhost:${apiPort}`,
         '/upload':  `http://localhost:${apiPort}`,
+        '/auth': `http://localhost:${apiPort}`,
+        '/transcribe': `http://localhost:${apiPort}`,
+        '/cognition': `http://localhost:${apiPort}`,
+        '/goal_stack': `http://localhost:${apiPort}`,
+        '/reflection': `http://localhost:${apiPort}`,
+        '/anticipator': `http://localhost:${apiPort}`,
         '/ws':      { target: `ws://localhost:${apiPort}`, ws: true },
       }
     }

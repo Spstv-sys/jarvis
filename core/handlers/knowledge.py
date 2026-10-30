@@ -5,10 +5,12 @@ import os
 import time
 import shutil
 import logging
+from pathlib import Path
 
 import config
 from core.utils import strip_triggers
 from core.handlers._safety import _check_skill_safety
+from core.skill_loader import approve_skill
 
 logger = logging.getLogger(__name__)
 
@@ -116,15 +118,24 @@ class KnowledgeMixin:
         if not name.endswith(".py"):
             name += ".py"
 
+        if Path(name).name != name or "/" in name or "\\" in name or ":" in name:
+            self.audio.speak("Вкажіть лише назву Python-файлу навички.")
+            return "CONTINUE"
+
         src = os.path.join(pending_dir, name)
         dst = os.path.join(self.jarvis.skills_dir, name)
 
-        if not os.path.exists(src):
+        # Existing local skills may also be explicitly approved after edits.
+        if not os.path.exists(src) and os.path.isfile(dst):
+            src = dst
+        if not os.path.isfile(src) or Path(src).is_symlink():
             self.audio.speak(f"Навичку {name} не знайдено у папці перевірки.")
             return "CONTINUE"
 
         try:
-            shutil.move(src, dst)
+            if src != dst:
+                shutil.move(src, dst)
+            approve_skill(dst)
             self.jarvis.load_skills()
             self.audio.speak(f"Навичку {name} активовано та інтегровано до системи.")
             logger.info(f"cmd_activate_skill: навичку активовано: {name}")

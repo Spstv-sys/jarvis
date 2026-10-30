@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
+import os
+import config
 
 
 def configure_logging() -> logging.Logger:
@@ -14,7 +16,7 @@ def configure_logging() -> logging.Logger:
     """
     logging.basicConfig(level=logging.INFO)  # set root level first
     handler = logging.handlers.RotatingFileHandler(
-        'jarvis_server.log',
+        os.path.join(config.DATA_DIR, 'jarvis_server.log'),
         maxBytes=5 * 1024 * 1024,  # 5 MB
         backupCount=3,
         encoding='utf-8',

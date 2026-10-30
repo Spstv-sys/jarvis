@@ -1,11 +1,12 @@
 """Юніт-тести core.skill_loader: динамічне завантаження навичок + колізії."""
 import logging
 
-from core.skill_loader import load_skills, warn_on_trigger_collisions
+from core.skill_loader import approve_skill, load_skills, warn_on_trigger_collisions
 
 
 def _write_skill(path, body):
     path.write_text(body, encoding="utf-8")
+    approve_skill(str(path))
 
 
 def test_loads_valid_skill(tmp_path):
@@ -72,26 +73,49 @@ _SAFE = (
 )
 
 
-def test_unsafe_skill_warned_but_loaded_by_default(tmp_path, monkeypatch):
-    monkeypatch.delenv("JARVIS_SKILL_SAFETY_ENFORCE", raising=False)
+def test_unapproved_skill_is_never_executed(tmp_path):
     (tmp_path / "skill_danger.py").write_text(_UNSAFE, encoding="utf-8")
     skills = load_skills(str(tmp_path))
-    # за умовчанням (warn) — навичка все одно завантажується
-    assert any(s["name"] == "skill_danger" for s in skills)
+    assert skills == []
 
 
-def test_unsafe_skill_skipped_when_enforced(tmp_path, monkeypatch):
-    monkeypatch.setenv("JARVIS_SKILL_SAFETY_ENFORCE", "1")
+def test_approval_required_even_for_code_passing_static_checks(tmp_path):
     (tmp_path / "skill_danger.py").write_text(_UNSAFE, encoding="utf-8")
-    (tmp_path / "skill_ok.py").write_text(_SAFE, encoding="utf-8")
+    _write_skill(tmp_path / "skill_ok.py", _SAFE)
     skills = load_skills(str(tmp_path))
     names = {s["name"] for s in skills}
     assert "skill_danger" not in names   # пропущено в суворому режимі
     assert "skill_ok" in names           # безпечна завантажилась
 
 
-def test_safe_skill_loads_under_enforce(tmp_path, monkeypatch):
-    monkeypatch.setenv("JARVIS_SKILL_SAFETY_ENFORCE", "1")
-    (tmp_path / "skill_ok.py").write_text(_SAFE, encoding="utf-8")
+def test_safe_skill_loads_after_explicit_approval(tmp_path):
+    _write_skill(tmp_path / "skill_ok.py", _SAFE)
     skills = load_skills(str(tmp_path))
     assert {s["name"] for s in skills} == {"skill_ok"}
+
+
+def test_changed_skill_loses_approval_before_module_code_runs(tmp_path):
+    path = tmp_path / "skill_ok.py"
+    _write_skill(path, _SAFE)
+    marker = tmp_path / "executed.txt"
+    path.write_text(f"from pathlib import Path\nPath({str(marker)!r}).touch()\n" + _SAFE,
+                    encoding="utf-8")
+    assert load_skills(str(tmp_path)) == []
+    assert not marker.exists()
+
+
+def test_unknown_module_cannot_run_top_level_code(tmp_path):
+    marker = tmp_path / "executed.txt"
+    (tmp_path / "new_skill.py").write_text(
+        f"from pathlib import Path\nPath({str(marker)!r}).touch()\n" + _SAFE,
+        encoding="utf-8",
+    )
+    assert load_skills(str(tmp_path)) == []
+    assert not marker.exists()
+
+
+def test_approval_survives_git_line_ending_conversion(tmp_path):
+    path = tmp_path / "skill_ok.py"
+    _write_skill(path, _SAFE)
+    path.write_bytes(_SAFE.replace("\n", "\r\n").encode("utf-8"))
+    assert {s["name"] for s in load_skills(str(tmp_path))} == {"skill_ok"}

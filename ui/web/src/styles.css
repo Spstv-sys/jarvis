@@ -1291,3 +1291,6 @@ input::placeholder {
     padding: 14px 14px !important;
   }
 }
+/* Access key is kept only for the current browser session. */
+.hud-auth { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 14px; }
+.hud-auth p { flex-basis: 100%; color: #ff6b80; margin: 0; }

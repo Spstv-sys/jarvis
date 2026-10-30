@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { apiFetch } from '../api'
 
 const SOURCE_META = {
   routine:      { icon: '🔁', label: 'рутина',  color: '#a6e22e' },
@@ -41,7 +42,7 @@ export default function AnticipatorBanner({
   // Початкова гідрація знімком, якщо WS не встиг.
   useEffect(() => {
     if (anticipator && (anticipator.pending?.length || anticipator.recent?.length)) return
-    fetch('/anticipator').then(r => r.json()).catch(() => null)
+    apiFetch('/anticipator').then(r => r.json()).catch(() => null)
     // setAnticipator не доступний тут — useJarvis оновить через WS після scan.
   }, [])
 

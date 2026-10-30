@@ -39,7 +39,9 @@ function useUptime() {
 }
 
 export default function App() {
-  const { messages, metrics, status, provider, connected, sendCommand, clearMessages, uploadFile, transcribeAudio, thoughts, clearThoughts, cognition, goalStack, reflection, runReflection, anticipator, scanAnticipator, acceptSuggestion, dismissSuggestion } = useJarvis()
+  const { authRequired, authError, authenticate, messages, metrics, status, provider, connected, sendCommand, clearMessages, uploadFile, transcribeAudio, thoughts, clearThoughts, cognition, goalStack, reflection, runReflection, anticipator, scanAnticipator, acceptSuggestion, dismissSuggestion } = useJarvis()
+  const [accessKey, setAccessKey] = useState('')
+  const [authPending, setAuthPending] = useState(false)
   const [input, setInput] = useState('')
   const [uploading, setUploading] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
@@ -114,8 +116,8 @@ export default function App() {
     setUploading(true)
     try {
       // Use current input as optional prompt about the file
-      await uploadFile(file, input.trim())
-      setInput('')
+      const result = await uploadFile(file, input.trim())
+      if (result.ok) setInput('')
     } finally {
       setUploading(false)
     }
@@ -166,6 +168,23 @@ export default function App() {
 
       {/* TITLE BAR */}
       <TitleBar />
+
+      {authRequired && (
+        <form className="hud-auth hud-panel" onSubmit={async event => {
+          event.preventDefault()
+          setAuthPending(true)
+          try { await authenticate(accessKey) } finally { setAuthPending(false) }
+        }}>
+          <label htmlFor="access-key">Ключ доступу до Нео</label>
+          <input id="access-key" className="hud-input" type="password" required maxLength={4096}
+            autoComplete="off" value={accessKey}
+            onChange={event => setAccessKey(event.target.value)} />
+          <button type="submit" className="hud-control-button" disabled={authPending}>
+            {authPending ? 'Підключення…' : 'Підключитися'}
+          </button>
+          {authError && <p role="alert">{authError}</p>}
+        </form>
+      )}
 
       {/* ШАПКА */}
       <div className="hud-topbar hud-app-topbar hud-reveal">

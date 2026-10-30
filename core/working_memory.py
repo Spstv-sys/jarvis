@@ -253,6 +253,14 @@ class WorkingMemory:
             block = " ".join(parts)
             return block[:max_chars]
 
+    def entity_snapshot(self, limit: int = 10) -> List[dict]:
+        """Copy entity state under the lock for API and WebSocket consumers."""
+        with self._lock:
+            self._evict_stale()
+            ordered = sorted(self.entities.values(),
+                             key=lambda entity: (entity.mentions, entity.last_seen), reverse=True)
+            return [asdict(entity) for entity in ordered[:max(0, limit)]]
+
     def recent_dialog(self, n: int = 4) -> str:
         with self._lock:
             tail = list(self.turns)[-n:]

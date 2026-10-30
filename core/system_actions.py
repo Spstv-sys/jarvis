@@ -5,6 +5,7 @@ import time
 import threading
 import logging
 import subprocess
+import shutil
 import psutil
 
 # ОС-залежні бібліотеки автоматизації — опційні: на headless-сервері
@@ -88,7 +89,7 @@ class SystemActions:
                 step = int(re.search(r'(\d+)', cmd).group(1)) if re.search(r'(\d+)', cmd) else 10
                 for _ in range(step):
                     keyboard.send("volume up")
-                self.audio.speak(f"Гучність збільшено.")
+                self.audio.speak("Гучність збільшено.")
 
             elif "тихіше" in cmd:
                 step = int(re.search(r'(\d+)', cmd).group(1)) if re.search(r'(\d+)', cmd) else 10
@@ -118,8 +119,44 @@ class SystemActions:
     # ДОДАТКИ ТА ОС
     # -------------------------------------------------------------------------
 
+    @staticmethod
+    def _find_excel() -> str | None:
+        if config.EXCEL_PATH:
+            return os.path.expandvars(os.path.expanduser(config.EXCEL_PATH.strip().strip('"')))
+        executable = shutil.which("excel.exe")
+        if executable:
+            return executable
+        import winreg
+        key_path = r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\excel.exe"
+        for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+            for view in (winreg.KEY_WOW64_64KEY, winreg.KEY_WOW64_32KEY):
+                try:
+                    with winreg.OpenKey(hive, key_path, 0, winreg.KEY_READ | view) as key:
+                        path = os.path.expandvars(winreg.QueryValueEx(key, "")[0].strip('"'))
+                    if os.path.isfile(path):
+                        return path
+                except OSError:
+                    continue
+        return None
+
+    def cmd_open_excel(self) -> str:
+        if sys.platform != "win32" or config.HEADLESS:
+            self.audio.speak("Відкриття Excel доступне у локальному режимі Windows.")
+            return "CONTINUE"
+        path = self._find_excel()
+        if not path or not os.path.isfile(path):
+            self.audio.speak("Microsoft Excel не знайдено. Вкажіть шлях до EXCEL.EXE у EXCEL_PATH файлу .env.")
+            return "CONTINUE"
+        subprocess.Popen([path], shell=False)
+        self.audio.speak("Відкриваю Microsoft Excel.")
+        return "CONTINUE"
+
     def cmd_apps_and_os(self, cmd: str) -> str:
         try:
+            if re.search(r"\b(?:відкрий|відкрити|запусти|запустити)\s+(?:ексель?|excel)\b",
+                         cmd, re.IGNORECASE):
+                return self.cmd_open_excel()
+
             if "час кодити" in cmd:
                 subprocess.Popen(["code"], shell=False)
                 self.audio.speak("Відкриваю VS Code.")

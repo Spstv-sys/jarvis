@@ -11,8 +11,8 @@
   • mount тільки скрипта read-only (-v /host/script.py:/sandbox/run.py:ro)
   • жорстким таймаутом (--stop-timeout + watchdog)
 
-Якщо Docker недоступний — fallback у `subprocess.run()` з таймаутом
-і попередженням у ThoughtLog (бо це менш безпечно).
+Якщо Docker недоступний, виконання відхиляється. Host-subprocess із
+таймаутом доступний лише за явним opt-in (без ізоляції файлової системи).
 
 Публічне API:
     from core.sandbox import run_python, SandboxResult
@@ -244,7 +244,7 @@ def _run_subprocess(
     stdin_text: Optional[str], started: float,
 ) -> SandboxResult:
     timed_out = False
-    cmd = [sys.executable, "-I", script_path, *args]
+    cmd = [sys.executable, "-I", "-X", "utf8", script_path, *args]
     try:
         proc = subprocess.run(
             cmd, capture_output=True, text=True,

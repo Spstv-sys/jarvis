@@ -4,12 +4,13 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from webapp import state
+from webapp.security import require_access
 
 logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_access)])
 
 
 @router.get("/anticipator")

@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "electron.cjs",
   "scripts": {
+    "test": "node --experimental-default-type=module --test tests/api.test.mjs",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",

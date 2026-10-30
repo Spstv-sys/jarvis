@@ -1,43 +1,54 @@
-version: "3.9"
-
 services:
   jarvis-api:
     build: .
     container_name: jarvis-api
     ports:
-      - "${API_PORT:-8001}:8001"
+      - "127.0.0.1:${API_PORT:-8001}:8001"
     env_file:
       - .env
     environment:
+      - API_PORT=8001
+      - JARVIS_HOST=0.0.0.0
+      - JARVIS_HEADLESS=1
+      - JARVIS_DATA_DIR=/app/data
       - OLLAMA_HOST=http://ollama:11434
       - CHROMA_HOST=chromadb
       - CHROMA_PORT=8000
       - TESSERACT_PATH=/usr/bin/tesseract
     volumes:
       - ./knowledge_base:/app/knowledge_base
-      - ./jarvis_vector_db:/app/jarvis_vector_db
+      - jarvis_data:/app/data
       - ./skills:/app/skills
-      - jarvis_logs:/app/logs
     depends_on:
-      - chromadb
-      - ollama
+      chromadb:
+        condition: service_healthy
+      ollama:
+        condition: service_started
     restart: unless-stopped
 
   chromadb:
-    image: chromadb/chroma:latest
+    image: chromadb/chroma:0.5.23
     container_name: jarvis-chromadb
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - chroma_data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/chroma/chroma
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/heartbeat', timeout=3)"]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 15s
     restart: unless-stopped
 
   ollama:
     image: ollama/ollama:latest
     container_name: jarvis-ollama
-    gpus: all
     ports:
-      - "${OLLAMA_PORT:-11534}:11434"
+      - "127.0.0.1:${OLLAMA_PORT:-11534}:11434"
     volumes:
       - ollama_data:/root/.ollama
     restart: unless-stopped
@@ -45,4 +56,4 @@ services:
 volumes:
   chroma_data:
   ollama_data:
-  jarvis_logs:
+  jarvis_data:

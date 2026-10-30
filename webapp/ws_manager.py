@@ -15,7 +15,8 @@ class ConnectionManager:
         self._lock = asyncio.Lock()
 
     async def connect(self, ws: WebSocket) -> None:
-        await ws.accept()
+        protocol = "jarvis" if "jarvis" in ws.scope.get("subprotocols", []) else None
+        await ws.accept(subprotocol=protocol)
         async with self._lock:
             self._clients.append(ws)
         logger.info(f"WebSocket клієнт підключився: {ws.client}. Всього клієнтів: {len(self._clients)}")

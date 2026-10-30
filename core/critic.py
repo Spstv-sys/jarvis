@@ -16,7 +16,7 @@ import re
 import json
 import logging
 from dataclasses import dataclass
-from typing import Callable, List, Optional
+from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 

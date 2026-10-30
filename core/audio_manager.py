@@ -25,7 +25,10 @@ except ImportError:
     openwakeword = None  # type: ignore[assignment]
     OWWModel = None  # type: ignore[assignment,misc]
     _OWW_AVAILABLE = False
-import pyaudio
+try:
+    import pyaudio
+except ImportError:
+    pyaudio = None
 
 # Allow running this module as a script (python core/audio_manager.py) by
 # ensuring the project root is on sys.path before importing top-level `config`.
@@ -79,12 +82,13 @@ class AudioManager:
 
         print(f"{Fore.CYAN}⚙️ Ініціалізація нейронного слуху...")
         try:
-            if _PYGAME_AVAILABLE:
+            if _PYGAME_AVAILABLE and not config.HEADLESS:
                 pygame.mixer.init()
             self.recognizer = sr.Recognizer()
-            self.audio_interface = pyaudio.PyAudio()
-
-            self.mic_available = self.check_microphone()
+            self.audio_interface = None
+            if pyaudio is not None and not config.HEADLESS:
+                self.audio_interface = pyaudio.PyAudio()
+                self.mic_available = self.check_microphone()
 
         except Exception as e:
             logger.error(f"Помилка ініціалізації аудіо: {e}")
@@ -94,7 +98,8 @@ class AudioManager:
         threading.Thread(
             target=self._load_whisper_async, daemon=True, name="WhisperLoader"
         ).start()
-        threading.Thread(target=self._load_oww_model, daemon=True, name="OWWLoader").start()
+        if not config.HEADLESS and self.mic_available:
+            threading.Thread(target=self._load_oww_model, daemon=True, name="OWWLoader").start()
 
     def _load_whisper_async(self) -> None:
         try:
@@ -247,7 +252,7 @@ class AudioManager:
             return asyncio.run(coro)
 
     def play_fx(self, sound_type: str) -> None:
-        if not _PYGAME_AVAILABLE:
+        if config.HEADLESS or not _PYGAME_AVAILABLE:
             return
         path = self._SOUND_MAP.get(sound_type)
         if not path or not os.path.exists(path):
@@ -269,6 +274,8 @@ class AudioManager:
 
     def speak_tts(self, text: str) -> None:
         """Perform TTS synthesis and blocking audio playback directly."""
+        if config.HEADLESS:
+            return
         clean_text = re.sub(r'[*#_]', '', text).strip()
         if not clean_text:
             return
@@ -280,7 +287,7 @@ class AudioManager:
         tmp.close()
 
         async def generate_audio():
-            communicate  = edge_tts.Communicate(clean_text, "uk-UA-OstapNeural", rate="+30%")
+            communicate  = edge_tts.Communicate(clean_text, config.VOICE_MODEL, rate=config.VOICE_RATE)
             audio_buffer = bytearray()
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
@@ -314,7 +321,9 @@ class AudioManager:
 
                 pygame.mixer.music.unload()
             except Exception as e:
-                logger.error(f"Помилка TTS: {e}")
+                # URL exception strings can contain transient service tokens.
+                logger.error("Помилка TTS: %s (HTTP %s)", type(e).__name__,
+                             getattr(e, "status", "n/a"))
             finally:
                 # Дати тиші стихнути в колонках, щоб мікрофон не вловив луну
                 time.sleep(self._tts_cooldown_sec)

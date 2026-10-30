@@ -29,7 +29,7 @@ openwakeword>=0.6.0
 PyAudio
 numpy
 faster-whisper
-edge-tts
+edge-tts>=7.3.1,<8
 # pygame — опціональний (не потрібен у Docker/серверному середовищі)
 # pygame
 

@@ -61,6 +61,8 @@ live_test_recordings/
 my-dataset/
 literature/
 skills/pending/
+skills/.approved.json
+data/
 
 
 # Training checkpoints (v2 run — великі: optimizer.pt тощо)

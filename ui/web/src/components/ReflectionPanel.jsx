@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { apiFetch } from '../api'
 
 const SCOPE_META = {
   skill:   { color: '#ffb347', icon: '🛠' },
@@ -64,7 +65,7 @@ export default function ReflectionPanel({ reflection, runReflection }) {
   useEffect(() => {
     if (!reflection || (!reflection.recent?.length && !reflection.last_run_ts)) {
       // first paint — hydrate via REST
-      fetch('/reflection').then(r => r.json()).then(d => {
+      apiFetch('/reflection').then(r => r.json()).then(d => {
         if (d && (d.recent || d.stats)) setLocalStats(d)
       }).catch(() => {})
     }

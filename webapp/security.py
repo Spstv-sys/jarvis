@@ -5,6 +5,7 @@ import os
 import time
 import logging
 import threading
+import secrets
 from collections import defaultdict
 
 from fastapi import HTTPException, Request
@@ -66,7 +67,7 @@ def enforce_access(request: Request, label: str, *, log: bool = True) -> str:
 
     if JARVIS_API_KEY:
         api_key = request.headers.get("X-API-Key", "")
-        if api_key != JARVIS_API_KEY:
+        if not secrets.compare_digest(api_key.encode(), JARVIS_API_KEY.encode()):
             if log:
                 logger.warning(f"{label}: неправильний API-ключ від {client_ip}")
             raise HTTPException(status_code=401, detail="Unauthorized")
@@ -77,3 +78,8 @@ def enforce_access(request: Request, label: str, *, log: bool = True) -> str:
         raise HTTPException(status_code=429, detail="Too Many Requests")
 
     return client_ip
+
+
+def require_access(request: Request) -> None:
+    """Router dependency for private state and actions."""
+    enforce_access(request, f"{request.method} {request.url.path}")

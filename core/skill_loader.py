@@ -21,6 +21,10 @@ import sys
 import glob
 import logging
 import importlib.util
+import hashlib
+import json
+import threading
+from pathlib import Path
 from typing import Optional
 
 from colorama import Fore
@@ -28,6 +32,37 @@ from colorama import Fore
 from core.utils import check_code_safety
 
 logger = logging.getLogger(__name__)
+_APPROVAL_LOCK = threading.Lock()
+
+
+def _digest(source: bytes) -> str:
+    # Git may check the same revision out as CRLF on Windows and LF on Linux.
+    return hashlib.sha256(source.replace(b"\r\n", b"\n")).hexdigest()
+
+
+def _read_manifest(path: Path) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def approve_skill(path: str) -> None:
+    """Trust this exact revision after an explicit activation by the user.
+
+    Approval permits code to run with the assistant's host permissions. Static
+    checks are advisory and must never substitute for this trust decision.
+    """
+    skill = Path(path)
+    digest = _digest(skill.read_bytes())
+    manifest = skill.parent / ".approved.json"
+    with _APPROVAL_LOCK:
+        approved = _read_manifest(manifest)
+        approved[skill.name] = digest
+        temporary = manifest.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(approved, indent=2), encoding="utf-8")
+        os.replace(temporary, manifest)
 
 
 def load_skills(skills_dir: str, triggers: Optional[dict] = None) -> list[dict]:
@@ -36,32 +71,33 @@ def load_skills(skills_dir: str, triggers: Optional[dict] = None) -> list[dict]:
     Повертає список ``{'triggers', 'func', 'name'}``. Якщо передано
     ``triggers`` (вбудовані маршрути), додатково попереджає про колізії.
     """
-    # Перевірка безпеки ПЕРЕД виконанням коду навички (exec_module запускає
-    # довільний код модуля). За умовчанням — лише попередження (бо комплектні
-    # довірені скіли можуть легітимно вживати, напр., importlib). Суворий режим
-    # JARVIS_SKILL_SAFETY_ENFORCE=1 пропускає (не виконує) небезпечні навички.
-    enforce = os.getenv("JARVIS_SKILL_SAFETY_ENFORCE", "0").lower() in ("1", "true", "yes", "on")
+    # Both manifests contain hashes, never executable code. A new or changed
+    # file must be approved before even its module-level code can execute.
+    bundled = _read_manifest(Path(__file__).with_name("bundled_skills.json"))
+    approved = _read_manifest(Path(skills_dir) / ".approved.json")
 
     skills: list[dict] = []
     for file in glob.glob(os.path.join(skills_dir, "*.py")):
         module_name = os.path.basename(file)[:-3]
         try:
-            try:
-                safe, reason = check_code_safety(open(file, encoding="utf-8").read())
-            except OSError:
-                safe, reason = True, ""  # помилку читання обробить exec_module нижче
+            source = Path(file).read_bytes()
+            digest = _digest(source)
+            name = Path(file).name
+            if bundled.get(name) != digest and approved.get(name) != digest:
+                logger.warning("Навичку %s пропущено: потрібна явна активація цієї версії", name)
+                continue
+            safe, reason = check_code_safety(source.decode("utf-8-sig"))
             if not safe:
                 msg = f"Навичка {module_name} НЕ пройшла перевірку безпеки: {reason}"
                 logger.warning(msg)
                 print(f"{Fore.YELLOW}⚠ {msg}")
-                if enforce:
-                    logger.warning(f"Навичку {module_name} пропущено (JARVIS_SKILL_SAFETY_ENFORCE=1).")
-                    continue
 
             sys.modules.pop(module_name, None)
             spec = importlib.util.spec_from_file_location(module_name, file)
             module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
+            # Execute exactly the bytes whose hash was approved, not a second
+            # disk read that could have changed since verification.
+            exec(compile(source, file, "exec"), module.__dict__)
             if hasattr(module, 'TRIGGERS') and hasattr(module, 'execute'):
                 skills.append({
                     'triggers': module.TRIGGERS,

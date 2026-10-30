@@ -7,11 +7,13 @@ import re
 import time
 import logging
 import tempfile
+import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Request, HTTPException, UploadFile, File, Form
 
 from webapp import state
+import config
 from webapp.security import enforce_access
 
 logger = logging.getLogger(__name__)
@@ -20,7 +22,7 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 # File upload
 # ---------------------------------------------------------------------------
-_UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
+_UPLOAD_DIR = Path(config.DATA_DIR) / "uploads"
 _UPLOAD_DIR.mkdir(exist_ok=True)
 _MAX_UPLOAD_SIZE = int(os.getenv("JARVIS_MAX_UPLOAD_MB", "25")) * 1024 * 1024
 _ALLOWED_EXTS = {
@@ -47,8 +49,8 @@ async def upload_file(
 ):
     enforce_access(request, "REST /upload")
 
-    if not state.jarvis_ready.is_set():
-        return {"status": "not_ready"}
+    if not state.jarvis_ready.is_set() or state.jarvis is None:
+        raise HTTPException(status_code=503, detail="Jarvis not ready")
 
     safe_name = _safe_filename(file.filename or "upload.bin")
     ext = os.path.splitext(safe_name)[1].lower()
@@ -60,7 +62,7 @@ async def upload_file(
 
     # Streaming write with size cap to prevent memory exhaustion / DoS
     timestamp = int(time.time())
-    final_name = f"{timestamp}_{safe_name}"
+    final_name = f"{timestamp}_{uuid.uuid4().hex}_{safe_name}"
     dest = _UPLOAD_DIR / final_name
     written = 0
     try:

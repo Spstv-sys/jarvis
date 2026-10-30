@@ -21,8 +21,9 @@ from webapp.ws_manager import ConnectionManager
 # Інстанс Jarvis; присвоюється у start_jarvis() з фонового потоку.
 jarvis: Optional[JarvisUltimate] = None
 
-# Сигнал готовності Jarvis (виставляється навіть у разі помилки ініціалізації).
+# Сигнал готовності Jarvis (лише після успішної ініціалізації).
 jarvis_ready: threading.Event = threading.Event()
+startup_error: str | None = None
 
 # Черга подій Jarvis → WebSocket.
 event_queue: "queue.Queue" = queue.Queue()

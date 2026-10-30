@@ -7,8 +7,8 @@
   • Reflector SCOPE_USER_TRAIT — детектори рис користувача
   • Sandbox — ізольоване виконання Python-скриптів
 
-Тести не потребують мережі чи Docker (sandbox автоматично fallback на
-subprocess з isolation flag).
+Тести не потребують мережі чи Docker; виконання локальних тестових скриптів
+явно вмикається фікстурою sandbox-тестів.
 """
 from __future__ import annotations
 
@@ -234,6 +234,12 @@ class TestReflectorUserTraits:
 # Sandbox
 # ---------------------------------------------------------------------------
 class TestSandbox:
+    @pytest.fixture(autouse=True)
+    def explicit_subprocess(self, monkeypatch):
+        # These execution tests deliberately use local, temporary test scripts.
+        import core.sandbox as sb
+        monkeypatch.setattr(sb, "_MODE", "subprocess")
+
     @pytest.fixture
     def script_factory(self, tmp_path):
         def _make(body: str) -> str:

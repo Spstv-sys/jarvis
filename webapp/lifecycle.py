@@ -31,6 +31,8 @@ logger = logging.getLogger(__name__)
 
 def start_jarvis() -> None:
     """Ініціалізувати Jarvis у фоновому потоці та запустити цикли обробки."""
+    state.jarvis_ready.clear()
+    state.startup_error = None
     try:
         state.jarvis = state.JarvisUltimate()
         state.jarvis.ui_callback = ui_callback
@@ -42,11 +44,15 @@ def start_jarvis() -> None:
         )
         state.event_queue.put({"sender": "STATUS", "text": "SYSTEM ONLINE"})
         logger.info("SYSTEM ONLINE — Jarvis успішно запущено.")
+        state.jarvis_ready.set()
     except Exception as e:
+        state.startup_error = str(e)
+        if state.jarvis is not None:
+            state.jarvis.is_running = False
+        state.jarvis = None
         state.event_queue.put({"sender": "STATUS", "text": f"INIT ERROR: {e}"})
         logger.error(f"INIT ERROR — Jarvis не вдалося запустити: {e}", exc_info=True)
-    finally:
-        state.jarvis_ready.set()
+        return
 
     if state.jarvis:
         state.jarvis.start_processing_loop()

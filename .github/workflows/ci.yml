@@ -31,7 +31,7 @@ jobs:
           # Лише легкі залежності. Важкі (chromadb / langchain / torch /
           # numpy / faster-whisper / audio / OS-бібліотеки) заглушені у
           # tests/conftest.py, тож для unit-тестів вони не потрібні.
-          pip install pytest rapidfuzz colorama python-dotenv psutil requests pyyaml
+          pip install pytest rapidfuzz colorama python-dotenv psutil requests pyyaml numpy fastapi httpx python-multipart uvicorn
 
       - name: Syntax check (compileall)
         run: python -m compileall -q core webapp main.py server.py config.py
@@ -43,6 +43,25 @@ jobs:
         run: pytest tests/ -q -p no:cacheprovider
         # test_integration_heavy скіпається сам (JARVIS_INTEGRATION не задано);
         # test_knowledge_graph працює на реальному SQLite (stdlib).
+
+  frontend:
+    name: Web client tests and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ui/web/package-lock.json
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      - run: npm test
+      - run: npm run build
 
   lint:
     name: Lint (ruff)

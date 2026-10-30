@@ -112,9 +112,9 @@ async def cognition_broadcaster() -> None:
             wm = getattr(state.jarvis, "working_memory", None)
             ctx = wm.context_block() if wm else ""
             ents = []
-            if wm and hasattr(wm, "entities"):
+            if wm is not None:
                 try:
-                    ents = [e.__dict__ for e in wm.entities()][:8]
+                    ents = wm.entity_snapshot(limit=8)
                 except Exception:
                     ents = []
             ir = getattr(state.jarvis, "intent_router", None)

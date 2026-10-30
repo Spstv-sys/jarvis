@@ -25,6 +25,6 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    import uvicorn
+    from webapp.runner import run_api
     port = int(os.getenv("API_PORT", 8001))
-    uvicorn.run(app, host="0.0.0.0", port=port, reload=False)
+    run_api(app, host=os.getenv("JARVIS_HOST", "127.0.0.1"), port=port)
